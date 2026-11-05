@@ -19,7 +19,9 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@cphia/shared/*": ["./packages/shared/src/*"],
+      "@cphia/shared": ["./packages/shared/src/index.ts"]
     }
   },
   "include": [

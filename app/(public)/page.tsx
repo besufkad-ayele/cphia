@@ -32,7 +32,9 @@ export default function PublicHomePage() {
     <main style={{ minHeight: '100vh', background: '#f3f7f6', color: '#102a2d' }}>
       <section
         style={{
-          background: 'linear-gradient(135deg, #0f5d57 0%, #1a7a69 45%, #2dae95 100%)',
+          backgroundImage: 'linear-gradient(90deg, rgba(11, 59, 57, 0.88) 0%, rgba(11, 59, 57, 0.72) 42%, rgba(11, 59, 57, 0.45) 100%), url("/hero.jpg")',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
           color: '#fff',
           padding: '72px 20px 48px',
         }}
@@ -99,18 +101,32 @@ export default function PublicHomePage() {
                 background: 'rgba(255,255,255,0.08)',
                 border: '1px solid rgba(255,255,255,0.16)',
                 borderRadius: 24,
-                padding: 24,
+                padding: 12,
                 boxShadow: '0 20px 35px rgba(0,0,0,0.10)',
+                overflow: 'hidden',
               }}
             >
-              <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 1.4, textTransform: 'uppercase', opacity: 0.85 }}>
-                Volunteer Impact
-              </div>
-              <div style={{ marginTop: 20, display: 'grid', gap: 16 }}>
-                <Metric label="Delegates" value="30,000+" />
-                <Metric label="Countries" value="50+" />
-                <Metric label="Sessions" value="200+" />
-                <Metric label="Volunteer Team" value="1,200+" />
+              <img
+                src="/hero.jpg"
+                alt="CPHIA 2026 conference landscape"
+                style={{
+                  width: '100%',
+                  height: 460,
+                  display: 'block',
+                  objectFit: 'cover',
+                  borderRadius: 18,
+                }}
+              />
+              <div style={{ padding: '18px 10px 8px' }}>
+                <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 1.4, textTransform: 'uppercase', opacity: 0.85 }}>
+                  Volunteer Impact
+                </div>
+                <div style={{ marginTop: 16, display: 'grid', gap: 16 }}>
+                  <Metric label="Delegates" value="30,000+" />
+                  <Metric label="Countries" value="50+" />
+                  <Metric label="Sessions" value="200+" />
+                  <Metric label="Volunteer Team" value="600+" />
+                </div>
               </div>
             </div>
           </div>
@@ -161,32 +177,6 @@ export default function PublicHomePage() {
               </div>
             ))}
           </div>
-        </div>
-      </section>
-
-      <section style={{ maxWidth: 1180, margin: '0 auto', padding: '48px 20px 10px' }}>
-        <div style={{ background: '#fff', borderRadius: 24, padding: 28, border: '1px solid #dfeae8', boxShadow: '0 12px 20px rgba(16,42,45,0.04)' }}>
-          <p style={{ margin: 0, color: '#186059', fontWeight: 800, letterSpacing: 1.5, textTransform: 'uppercase', fontSize: 12 }}>
-            Who Can Apply?
-          </p>
-          <ul style={{ margin: '18px 0 0', paddingLeft: 22, color: '#334b4d', lineHeight: 1.9, fontSize: 17 }}>
-            {eligibility.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-        </div>
-      </section>
-
-      <section style={{ maxWidth: 1180, margin: '0 auto', padding: '48px 20px 10px' }}>
-        <div style={{ background: 'linear-gradient(180deg, #ebf7f4 0%, #ffffff 100%)', borderRadius: 24, padding: 28, border: '1px solid #dfeae8' }}>
-          <p style={{ margin: 0, color: '#186059', fontWeight: 800, letterSpacing: 1.5, textTransform: 'uppercase', fontSize: 12 }}>
-            How to Apply (Timeline)
-          </p>
-          <ol style={{ margin: '18px 0 0', paddingLeft: 22, color: '#334b4d', lineHeight: 1.9, fontSize: 17 }}>
-            <li><strong>Submit Your Application:</strong> Complete the online registration form below by [Insert Deadline Date].</li>
-            <li><strong>Screening &amp; Selection:</strong> Shortlisted candidates will be contacted via email by [Insert Notification Date].</li>
-            <li><strong>Mandatory Onboarding:</strong> Attend the in-person orientation and venue walkthrough at the Addis International Convention Center on November 21–22, 2026.</li>
-          </ol>
         </div>
       </section>
 
