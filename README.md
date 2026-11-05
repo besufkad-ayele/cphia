@@ -1,36 +1,72 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# CPHIA Facility Volunteer Training Registration System
 
-## Getting Started
+This repository contains the monorepo for the public volunteer registration site and the admin portal for managing registrations and approvals.
 
-First, run the development server:
+## Stack
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- Next.js 16 monorepo with apps under `apps/`
+- Shared constants and validation schemas under `packages/shared`
+- Supabase Postgres for data persistence and unique enforcement
+- Route handlers in the web app for all server-side registration logic
+- Zod validation before any insertion is attempted
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Local setup
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. Install dependencies:
+   `pnpm install`
+2. Copy `.env.example` to `.env.local` and fill in the required values.
+3. Start the web app:
+   `pnpm dev:web`
+4. Start the admin app:
+   `pnpm dev:admin`
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Required environment variables
 
-## Learn More
+See `.env.example` for the baseline settings.
 
-To learn more about Next.js, take a look at the following resources:
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPER_ADMIN_EMAIL`
+- `RESEND_API_KEY`
+- `EMAIL_FROM`
+- `FINGERPRINT_STRICT`
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Database and schema notes
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The SQL migration at `supabase/migrations/001_initial_schema.sql` creates the core tables, indexes, sequence, and `register_volunteer` RPC function. It enforces required uniqueness on FAN, email, phone, device token and idempotency key in Postgres so the database remains the source of truth.
 
-## Deploy on Vercel
+## Device and duplicate enforcement
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The device lock is a convenience barrier and an extra server-side check. A second attempt from the same device is blocked by the `DUPLICATE_DEVICE` path. The real per-person guarantee is the FAN, email and phone uniqueness in Postgres. Fingerprint matching is stored as a soft review flag and can be made strict by setting `FINGERPRINT_STRICT=true`.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Known limits
+
+- A device token cannot stop someone using a different browser, a private window, or after clearing all site storage.
+- The per-person guarantee is the unique FAN number, phone and email.
+- The device lock and fingerprint signal are advisory guardrails for review and one-device compliance.
+
+## Event-day sizing
+
+For 300+ concurrent submissions, use a Supabase plan sized to accommodate the write burst and monitor connections, CPU and transaction duration. Since each registration goes through a single RPC call and the write set is constrained, the app is designed to keep the DB round trip count low.
+
+## Load testing
+
+A sample k6 script is provided in `k6/register-load-test.js` for simulating 300 concurrent submissions.
+
+## Security and privacy
+
+- Do not log FAN numbers, phone numbers, national IDs or photo metadata.
+- Keep all secrets in environment variables only.
+- The public app never talks directly to Supabase tables.
+- All registration logic runs through the server-side route handler and the Supabase service role.
+
+## Deliverables progress
+
+Stage 1 completed: Supabase schema, unique constraints, and the initial `/api/register` validation route are in place.
+
+Remaining stages:
+
+1. Public form with 3 steps, draft persistence, i18n and golden loading state
+2. Admin portal and Excel export
+3. Final load test and bug fixes
