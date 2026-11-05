@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const signedSession = `${email}.${signValue(email)}`;
+  const signedSession = `${encodeURIComponent(email)}.${signValue(email)}`;
   const response = NextResponse.redirect(new URL('/admin', request.url));
 
   response.cookies.set(SESSION_COOKIE, signedSession, {

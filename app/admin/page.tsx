@@ -1,3 +1,5 @@
+'use client';
+
 import type { CSSProperties } from 'react';
 
 type Status = 'pending' | 'approved' | 'review' | 'flagged';
@@ -38,6 +40,11 @@ const statusStyles: Record<Status, { label: string; background: string; color: s
 };
 
 export default function AdminPage() {
+  async function handleSignOut() {
+    await fetch('/api/admin/logout', { method: 'GET' });
+    window.location.assign('/admin/login');
+  }
+
   return (
     <main style={pageStyle}>
       <div style={shellStyle}>
@@ -48,7 +55,7 @@ export default function AdminPage() {
           </div>
           <div style={headerActionsStyle}>
             <div style={userBadgeStyle}>Super Admin</div>
-            <button type="button" style={ghostButtonStyle}>Sign out</button>
+            <button type="button" style={ghostButtonStyle} onClick={handleSignOut}>Sign out</button>
           </div>
         </header>
 

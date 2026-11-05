@@ -13,7 +13,12 @@ function signValue(value: string) {
 function isValidSessionCookie(cookieValue: string | undefined) {
   if (!cookieValue) return false;
 
-  const [email, signature] = cookieValue.split('.');
+  const separatorIndex = cookieValue.lastIndexOf('.');
+  if (separatorIndex <= 0) return false;
+
+  const email = decodeURIComponent(cookieValue.slice(0, separatorIndex));
+  const signature = cookieValue.slice(separatorIndex + 1);
+
   if (!email || !signature) return false;
 
   const expectedSignature = signValue(email);
