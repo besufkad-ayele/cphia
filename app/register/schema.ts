@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+const phoneField = z.string().trim().min(5, 'Enter a valid phone number').max(20, 'Phone number is too long');
+const optionalPhoneField = z.union([phoneField, z.literal('')]).default('');
+
 export const registerFormSchema = z.object({
   agree: z.boolean().refine((value) => value === true, 'Consent is required'),
   firstName: z.string().min(1, 'First name is required').max(80),
@@ -18,12 +21,9 @@ export const registerFormSchema = z.object({
   }, 'Enter at least 10 digits').default(''),
   secondIdType: z.union([z.enum(['Passport', 'Kebele ID', "Driver's license", 'Other']), z.literal('')]).default(''),
   secondIdNumber: z.string().max(80).default(''),
-  phone: z.string().trim().regex(/^\+251[79]\d{8}$/, 'Enter a valid Ethiopian number'),
+  phone: phoneField,
   phoneIsWhatsApp: z.boolean().nullable().default(null),
-  whatsappNumber: z.union([
-    z.string().trim().regex(/^\+251[79]\d{8}$/, 'Enter a valid Ethiopian number'),
-    z.literal(''),
-  ]).default(''),
+  whatsappNumber: optionalPhoneField,
   whatsappNo: z.boolean().default(false),
   email: z.string().trim().email('Enter a valid email'),
   confirmEmail: z.string().trim().email('Enter a valid email'),
@@ -36,7 +36,7 @@ export const registerFormSchema = z.object({
     z.literal(''),
   ]).default(''),
   emergencyName: z.string().min(1, 'Emergency contact name is required').max(120),
-  emergencyPhone: z.string().trim().regex(/^\+251[79]\d{8}$/, 'Enter a valid Ethiopian number'),
+  emergencyPhone: phoneField,
   emergencyRelationship: z.string().min(1, 'Relationship is required').max(80),
   languages: z.array(
     z.object({
@@ -88,12 +88,9 @@ export const personalStepSchema = z.object({
     const digits = value.replace(/\s/g, '');
     return digits === '' || /^\d{10,20}$/.test(digits);
   }, 'Enter at least 10 digits').default(''),
-  phone: z.string().trim().regex(/^\+251[79]\d{8}$/, 'Enter a valid Ethiopian number'),
+  phone: phoneField,
   phoneIsWhatsApp: z.boolean().nullable().default(null),
-  whatsappNumber: z.union([
-    z.string().trim().regex(/^\+251[79]\d{8}$/, 'Enter a valid Ethiopian number'),
-    z.literal(''),
-  ]).default(''),
+  whatsappNumber: optionalPhoneField,
   email: z.string().trim().email('Enter a valid email'),
   confirmEmail: z.string().trim().email('Enter a valid email'),
   residenceRegion: z.string().min(1, 'Region is required').max(80),
@@ -111,7 +108,7 @@ export const backgroundStepSchema = z.object({
     z.literal(''),
   ]).default(''),
   emergencyName: z.string().min(1, 'Emergency contact name is required').max(120),
-  emergencyPhone: z.string().trim().regex(/^\+251[79]\d{8}$/, 'Enter a valid Ethiopian number'),
+  emergencyPhone: phoneField,
   emergencyRelationship: z.string().min(1, 'Relationship is required').max(80),
   languages: z.array(
     z.object({
