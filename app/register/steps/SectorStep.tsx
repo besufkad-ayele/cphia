@@ -22,6 +22,7 @@ import type { RegisterFormValues, StoredPhoto } from '../types';
 export function SectorStep({
   form,
   ureportUrl,
+  ureportPhoto,
   ureportError,
   onUploadUreport,
   onRemoveUreport,
@@ -33,6 +34,7 @@ export function SectorStep({
 }: {
   form: UseFormReturn<RegisterFormValues>;
   ureportUrl: string | null;
+  ureportPhoto: StoredPhoto | null;
   ureportError: string | null;
   onUploadUreport: (file: File | null) => void;
   onRemoveUreport: () => void;
@@ -185,22 +187,28 @@ export function SectorStep({
       </Field>
 
       {values.ureportRegistered ? (
-        <Field id="ureportScreenshot" label={t('form.ureportScreenshot')} error={ureportError ?? undefined}>
-          {ureportUrl ? (
+        <Field id="ureportScreenshot" label={t('form.ureportScreenshot')} hint="JPG, PNG, WEBP, or PDF" error={ureportError ?? undefined}>
+          {ureportUrl || ureportPhoto ? (
             <div className="grid gap-2">
-              <img src={ureportUrl} alt="U-Report screenshot" className="h-32 w-full rounded-lg object-cover" />
-              <Button type="button" variant="outline" className="h-11 w-fit" onClick={onRemoveUreport}>Remove screenshot</Button>
+              {ureportPhoto?.type === 'application/pdf' || ureportPhoto?.fileName.toLowerCase().endsWith('.pdf') ? (
+                <div className="flex h-32 items-center justify-center rounded-lg border bg-muted text-sm font-medium text-muted-foreground">
+                  PDF selected: {ureportPhoto?.fileName ?? 'document.pdf'}
+                </div>
+              ) : ureportUrl ? (
+                <img src={ureportUrl} alt="U-Report screenshot" className="h-32 w-full rounded-lg object-cover" />
+              ) : null}
+              <Button type="button" variant="outline" className="h-11 w-fit" onClick={onRemoveUreport}>Remove file</Button>
             </div>
           ) : (
             <Button type="button" variant="outline" className="h-11" onClick={() => ureportRef.current?.click()}>
-              Upload U-Report screenshot
+              Upload U-Report file
             </Button>
           )}
           <input
             ref={ureportRef}
             className="hidden"
             type="file"
-            accept="image/jpeg,image/png,image/webp"
+            accept="image/jpeg,image/png,image/webp,application/pdf"
             onChange={(event) => onUploadUreport(event.target.files?.[0] ?? null)}
           />
         </Field>

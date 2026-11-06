@@ -2,13 +2,19 @@
 
 import { Fragment, type ReactNode } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, ArrowRight, Camera, Check, CircleAlert, ImageIcon, User } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Camera, Check, ChevronDown, CircleAlert, FileText, ImageIcon, Languages, User } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { CphiaLogo } from '@/components/brand/cphia-logo';
 import {
   Dialog,
@@ -40,48 +46,73 @@ export function GlassCard({ children, className = '' }: { children: ReactNode; c
 export function AppShell({
   locale,
   onLocaleChange,
+  progress,
   children,
 }: {
   locale: AppLocale;
   onLocaleChange: (locale: AppLocale) => void;
+  progress?: { step: number; titles: string[] };
   children: ReactNode;
 }) {
   return (
-    <main lang={locale} className="min-h-screen bg-muted/40 px-3 pb-36 pt-[calc(4.75rem+env(safe-area-inset-top))] md:px-6 md:pt-[calc(5.25rem+env(safe-area-inset-top))] lg:px-10">
+    <main lang={locale} className="register-gradient-bg min-h-screen px-3 pb-36 pt-[calc(4.75rem+env(safe-area-inset-top))] md:px-6 md:pt-[calc(5.25rem+env(safe-area-inset-top))] lg:px-10">
+      <span aria-hidden className="register-gradient-orb" />
       <header className="fixed inset-x-0 top-0 z-40 border-b border-white/50 bg-white/65 pt-[env(safe-area-inset-top)] shadow-[0_8px_30px_rgba(0,0,0,0.06)] backdrop-blur-2xl backdrop-saturate-150 supports-[backdrop-filter]:bg-white/45">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-3 py-3 md:px-6 lg:px-10">
+        <div className="mx-auto flex max-w-6xl items-center gap-3 px-3 py-3 md:px-6 lg:px-10">
           <Link href="/" className="w-fit shrink-0 rounded-xl bg-white/80 px-2 py-1.5 ring-1 ring-black/5 backdrop-blur-sm">
-            <CphiaLogo className="h-10 w-auto max-w-[160px] object-contain object-left sm:h-12 sm:max-w-[280px]" />
+            <CphiaLogo className="h-9 w-auto max-w-[108px] object-contain object-left sm:h-11 sm:max-w-[200px]" />
           </Link>
+          {progress ? <HeaderProgress step={progress.step} titles={progress.titles} /> : <div className="flex-1" />}
           <LanguageSwitcher locale={locale} onChange={onLocaleChange} />
         </div>
       </header>
-      <div className="pt-4">{children}</div>
+      <div className="relative z-0 pt-4">{children}</div>
     </main>
+  );
+}
+
+export function HeaderProgress({ step, titles }: { step: number; titles: string[] }) {
+  const safeStep = Math.min(Math.max(step, 0), Math.max(titles.length - 1, 0));
+  const title = titles[safeStep] ?? '';
+  const width = titles.length ? Math.round(((safeStep + 1) / titles.length) * 100) : 0;
+
+  return (
+    <div className="min-w-0 flex-1" aria-label={`${width}% complete: ${title}`}>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="truncate text-xs font-semibold text-foreground sm:text-sm">{title}</span>
+        <span className="shrink-0 text-[11px] font-medium text-muted-foreground">{width}%</span>
+      </div>
+      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-black/10">
+        <div className="h-full rounded-full bg-accent transition-[width] duration-300" style={{ width: `${width}%` }} />
+      </div>
+    </div>
   );
 }
 
 export function LanguageSwitcher({ locale, onChange }: { locale: AppLocale; onChange: (locale: AppLocale) => void }) {
   return (
-    <div className="flex shrink-0 items-center gap-1.5" aria-label="Language switcher">
-      {appLocales.map((item) => {
-        const active = item === locale;
-        return (
-          <Button
-            key={item}
-            type="button"
-            variant={active ? 'secondary' : 'outline'}
-            className="h-9 min-w-11 px-2.5 text-xs font-semibold tracking-wide text-foreground"
-            aria-label={localeLabels[item]}
-            title={localeLabels[item]}
-            aria-pressed={active}
-            onClick={() => onChange(item)}
-          >
-            {localeShortLabels[item]}
-          </Button>
-        );
-      })}
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        aria-label={`Language, ${localeLabels[locale]}`}
+        className="inline-flex h-10 shrink-0 items-center gap-1 rounded-full border border-black/10 bg-white/75 px-2.5 text-foreground shadow-sm backdrop-blur-md hover:bg-white"
+      >
+        <Languages className="size-4" />
+        <span className="text-xs font-semibold tracking-wide">{localeShortLabels[locale]}</span>
+        <ChevronDown className="size-3.5 opacity-70" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="z-50 min-w-48">
+        {appLocales.map((item) => {
+          const active = item === locale;
+          return (
+            <DropdownMenuItem key={item} onClick={() => onChange(item)} className="h-10">
+              <span className="w-8 text-xs font-semibold">{localeShortLabels[item]}</span>
+              <span>{localeLabels[item]}</span>
+              {active ? <Check className="ml-auto size-4 text-primary" /> : null}
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -94,16 +125,6 @@ export function Stepper({
 }) {
   return (
     <Fragment>
-      <Card className="sticky top-[calc(4.75rem+env(safe-area-inset-top))] z-30 block border-white/50 bg-white/65 p-3 shadow-[0_8px_30px_rgba(0,0,0,0.05)] backdrop-blur-xl backdrop-saturate-150 md:top-[calc(5.25rem+env(safe-area-inset-top))] lg:hidden supports-[backdrop-filter]:bg-white/45">
-        <div className="flex items-center justify-between gap-3">
-          <strong className="text-sm">Step {step + 1} of {titles.length}</strong>
-          <span className="text-xs text-muted-foreground">{titles[step]}</span>
-        </div>
-        <div className="mt-2 h-2 rounded-full bg-muted">
-          <div className="h-full rounded-full bg-accent" style={{ width: `${((step + 1) / titles.length) * 100}%` }} />
-        </div>
-      </Card>
-
       <Card className="sticky top-[calc(5.25rem+env(safe-area-inset-top))] hidden h-fit border-white/50 bg-white/65 p-4 shadow-[0_8px_30px_rgba(0,0,0,0.05)] backdrop-blur-xl backdrop-saturate-150 lg:block supports-[backdrop-filter]:bg-white/45">
         <ol className="m-0 grid list-none gap-3 p-0">
           {titles.map((title, index) => {
@@ -338,6 +359,7 @@ export function ToggleChip({
 export function PhotoUpload({
   photoUrl,
   photoName,
+  fileType,
   sizeLabel,
   onTake,
   onChoose,
@@ -347,6 +369,7 @@ export function PhotoUpload({
 }: {
   photoUrl: string | null;
   photoName?: string;
+  fileType?: string;
   sizeLabel?: string;
   onTake: () => void;
   onChoose: () => void;
@@ -354,27 +377,38 @@ export function PhotoUpload({
   required?: boolean;
   variant?: 'portrait' | 'document';
 }) {
+  const isPdf = fileType === 'application/pdf' || photoName?.toLowerCase().endsWith('.pdf');
+  const frameClass = variant === 'document' ? 'h-20 w-32' : 'h-28 w-20';
+
   return (
     <div className="rounded-xl border border-dashed p-3">
       <div className="flex flex-wrap items-center gap-3">
-        {photoUrl ? (
+        {photoUrl && !isPdf ? (
           <img
             src={photoUrl}
             alt="Preview"
-            className={variant === 'document' ? 'h-20 w-32 rounded-md border object-cover' : 'h-28 w-20 rounded-md border object-cover object-top'}
+            className={`${frameClass} rounded-md border object-cover ${variant === 'portrait' ? 'object-top' : ''}`}
           />
+        ) : photoUrl && isPdf ? (
+          <div className={`grid ${frameClass} place-items-center gap-1 rounded-md border bg-muted text-muted-foreground`}>
+            <FileText className="size-6 text-primary" />
+            <span className="text-[10px] font-semibold uppercase tracking-wide">PDF</span>
+          </div>
         ) : (
-          <div className={`grid place-items-center gap-1 rounded-md border bg-muted text-muted-foreground ${variant === 'document' ? 'h-20 w-32' : 'h-28 w-20'}`}>
+          <div className={`grid ${frameClass} place-items-center gap-1 rounded-md border bg-muted text-muted-foreground`}>
             {variant === 'document' ? <ImageIcon className="size-5" /> : <User className="size-5" />}
             <span className="text-[10px] font-medium">{required ? 'Required' : 'Optional'}</span>
           </div>
         )}
         <div className="grid gap-2">
-          <div className="text-sm font-medium">{photoName ?? 'No image selected'}</div>
+          <div className="text-sm font-medium">{photoName ?? 'No file selected'}</div>
           {sizeLabel ? <div className="text-xs text-muted-foreground">{sizeLabel}</div> : null}
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" className="h-11" onClick={onTake}><Camera /> Take photo</Button>
-            <Button type="button" variant="outline" className="h-11" onClick={onChoose}><ImageIcon /> Gallery</Button>
+            <Button type="button" variant="outline" className="h-11" onClick={onChoose}>
+              {variant === 'document' ? <FileText /> : <ImageIcon />}
+              {variant === 'document' ? 'Choose file' : 'Gallery'}
+            </Button>
             {photoUrl ? <Button type="button" variant="destructive" className="h-11" onClick={onRemove}>Remove</Button> : null}
           </div>
         </div>

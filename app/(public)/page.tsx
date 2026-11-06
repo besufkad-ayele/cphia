@@ -342,17 +342,7 @@ export default function PublicHomePage() {
             ))}
           </div>
           {last ? (
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={goBack}
-                aria-label="Previous slide"
-                className="grid size-14 shrink-0 place-items-center rounded-full border border-white/40 bg-white/10 text-white backdrop-blur-md hover:bg-white/20"
-              >
-                <ArrowLeft className="size-5" />
-              </button>
-              <SlideToAction label="Slide to start your application" onComplete={goToRegister} />
-            </div>
+            <SlideToAction label="Slide to start your application" onComplete={goToRegister} />
           ) : (
             <div className="flex items-center justify-between gap-3">
               <button

@@ -47,7 +47,6 @@ function createLanguageRows(): LanguageRow[] {
 }
 
 const STEPS = [ConsentStep, PersonalStep, BackgroundStep, SectorStep, ReviewStep] as const;
-const formStepTitles = ['Consent', 'Personal details', 'Background & Languages', 'Sector', 'Review'];
 
 const defaultValues: RegisterFormValues = {
   agree: false,
@@ -138,6 +137,7 @@ function RegisterScreen() {
   } = useDraft(form);
   const { triggerStep, errorSummary } = useStepValidation(form);
   const t = getRegisterTranslations(locale);
+  const formStepTitles = [t('consentTitle'), t('step1'), t('step2'), t('step3'), t('step4')];
   const values = form.watch();
   const StepComponent = STEPS[Math.max(step, 0)];
 
@@ -169,6 +169,9 @@ function RegisterScreen() {
     ]);
   }, [form, hydrated]);
 
+  const allowedImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
+  const allowedAttachmentTypes = new Set([...allowedImageTypes, 'application/pdf']);
+
   const compressImage = async (file: File) => {
     const { default: imageCompression } = await import('browser-image-compression');
     return imageCompression(file, {
@@ -184,14 +187,29 @@ function RegisterScreen() {
     setter: (photo: StoredPhoto) => Promise<void>,
     setError: (message: string | null) => void,
     label: string,
+    options?: { imagesOnly?: boolean },
   ) => {
     setError(null);
     if (!file) return;
+    const allowed = options?.imagesOnly ? allowedImageTypes : allowedAttachmentTypes;
+    if (!allowed.has(file.type)) {
+      setError(`${label} must be a JPG, PNG, WEBP${options?.imagesOnly ? '' : ', or PDF'} file.`);
+      return;
+    }
     if (file.size > 10_000_000) {
       setError(`${label} must be under 10 MB.`);
       return;
     }
     try {
+      if (file.type === 'application/pdf') {
+        await setter({
+          fileName: file.name,
+          blob: file,
+          size: file.size,
+          type: file.type,
+        });
+        return;
+      }
       const compressed = await compressImage(file);
       await setter({
         fileName: compressed.name,
@@ -200,7 +218,7 @@ function RegisterScreen() {
         type: compressed.type,
       });
     } catch {
-      setError(`${label} could not be processed. Please try another image.`);
+      setError(`${label} could not be processed. Please try another file.`);
     }
   };
 
@@ -358,7 +376,7 @@ function RegisterScreen() {
   }
 
   return (
-    <AppShell locale={locale} onLocaleChange={setLocaleAndForm}>
+    <AppShell locale={locale} onLocaleChange={setLocaleAndForm} progress={{ step, titles: formStepTitles }}>
       <RegisterIntlProvider locale={locale}>
         <div className="mx-auto mt-4 grid max-w-6xl gap-4 lg:grid-cols-[280px_1fr]">
           <Stepper step={step} titles={formStepTitles} />
@@ -384,11 +402,11 @@ function RegisterScreen() {
                 secondIdPhotoError={secondIdPhotoError}
                 showSecondId={showSecondId || Boolean(values.secondIdType || values.secondIdNumber)}
                 onToggleSecondId={() => setShowSecondId((prev) => !prev)}
-                onUploadPhoto={(file) => void saveImage(file, setDraftPhoto, setPhotoError, 'Personal photo')}
+                onUploadPhoto={(file) => void saveImage(file, setDraftPhoto, setPhotoError, 'Personal photo', { imagesOnly: true })}
                 onRemovePhoto={() => void setDraftPhoto(null)}
-                onUploadFanPhoto={(file) => void saveImage(file, setFanPhoto, setFanPhotoError, 'National ID photo')}
+                onUploadFanPhoto={(file) => void saveImage(file, setFanPhoto, setFanPhotoError, 'National ID file')}
                 onRemoveFanPhoto={() => void setFanPhoto(null)}
-                onUploadSecondIdPhoto={(file) => void saveImage(file, setSecondIdPhoto, setSecondIdPhotoError, 'ID photo')}
+                onUploadSecondIdPhoto={(file) => void saveImage(file, setSecondIdPhoto, setSecondIdPhotoError, 'ID file')}
                 onRemoveSecondIdPhoto={() => void setSecondIdPhoto(null)}
               />
             ) : null}
@@ -398,8 +416,9 @@ function RegisterScreen() {
               <SectorStep
                 form={form}
                 ureportUrl={ureportUrl}
+                ureportPhoto={ureportPhoto}
                 ureportError={ureportError}
-                onUploadUreport={(file) => void saveImage(file, setUreportPhoto, setUreportError, 'U-Report screenshot')}
+                onUploadUreport={(file) => void saveImage(file, setUreportPhoto, setUreportError, 'U-Report file')}
                 onRemoveUreport={() => void setUreportPhoto(null)}
                 bankOwnerPhoto={bankOwnerPhoto}
                 bankOwnerPhotoUrl={bankOwnerPhotoUrl}

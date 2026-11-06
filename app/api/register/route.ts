@@ -6,7 +6,8 @@ import { getSupabaseAdmin } from '@/app/lib/supabase/server';
 export const runtime = 'nodejs';
 
 const MAX_PHOTO_BYTES = 3 * 1024 * 1024;
-const allowedMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const allowedMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf']);
+const portraitMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const DUPLICATE_CODES = new Set(['DUPLICATE_EMAIL', 'DUPLICATE_PHONE', 'DUPLICATE_FAN', 'DUPLICATE_DEVICE', 'DUPLICATE']);
 
 function isJpg(signature: string) {
@@ -21,17 +22,46 @@ function isWebp(signature: string) {
   return signature.startsWith('52494646') && signature.slice(16, 24).toLowerCase() === '57454250';
 }
 
-function looksLikeImage(bytes: Uint8Array) {
-  const signature = Array.from(bytes.slice(0, 12))
+function isPdf(signature: string) {
+  return signature.startsWith('25504446');
+}
+
+function fileSignature(bytes: Uint8Array) {
+  return Array.from(bytes.slice(0, 12))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
+}
+
+function looksLikeImage(bytes: Uint8Array) {
+  const signature = fileSignature(bytes);
   return isJpg(signature) || isPng(signature) || isWebp(signature);
 }
 
-async function uploadImage(file: File, objectPath: string) {
+function looksLikeAllowedFile(bytes: Uint8Array, mimeType: string) {
+  const signature = fileSignature(bytes);
+  if (mimeType === 'application/pdf') return isPdf(signature);
+  return looksLikeImage(bytes);
+}
+
+function extensionForMime(mimeType: string) {
+  if (mimeType === 'application/pdf') return 'pdf';
+  if (mimeType === 'image/png') return 'png';
+  if (mimeType === 'image/webp') return 'webp';
+  return 'jpg';
+}
+
+async function uploadAttachment(
+  file: File,
+  objectPath: string,
+  options?: { imagesOnly?: boolean },
+) {
   if (file.size > MAX_PHOTO_BYTES) return { error: 'PHOTO_TOO_LARGE' as const };
+  const allowed = options?.imagesOnly ? portraitMimeTypes : allowedMimeTypes;
   const bytes = new Uint8Array(await file.arrayBuffer());
-  if (!allowedMimeTypes.has(file.type) || !looksLikeImage(bytes)) {
+  if (!allowed.has(file.type) || !looksLikeAllowedFile(bytes, file.type)) {
+    return { error: 'INVALID_PHOTO' as const };
+  }
+  if (options?.imagesOnly && !looksLikeImage(bytes)) {
     return { error: 'INVALID_PHOTO' as const };
   }
   const supabase = getSupabaseAdmin();
@@ -134,14 +164,20 @@ export async function POST(request: NextRequest) {
 
     const registration = parsed.data;
 
-    async function requireUpload(field: string, suffix: string, missingCode: string) {
+    async function requireUpload(
+      field: string,
+      suffix: string,
+      missingCode: string,
+      options?: { imagesOnly?: boolean },
+    ) {
       const file = formData.get(field);
       if (!file || typeof file === 'string') return { error: missingCode };
-      const extension = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
-      return uploadImage(file as File, `${registration.idempotencyKey}${suffix}.${extension}`);
+      const attachment = file as File;
+      const extension = extensionForMime(attachment.type);
+      return uploadAttachment(attachment, `${registration.idempotencyKey}${suffix}.${extension}`, options);
     }
 
-    const uploaded = await requireUpload('photo', '', 'PHOTO_REQUIRED');
+    const uploaded = await requireUpload('photo', '', 'PHOTO_REQUIRED', { imagesOnly: true });
     if ('error' in uploaded) {
       return NextResponse.json({ error: uploaded.error }, { status: uploaded.error === 'REGISTRATION_FAILED' ? 500 : 400 });
     }

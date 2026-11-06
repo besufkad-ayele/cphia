@@ -61,6 +61,50 @@
   }
 }
 
+@keyframes register-blob-a {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1) rotate(0deg);
+    border-radius: 62% 38% 46% 54% / 60% 42% 58% 40%;
+  }
+  33% {
+    transform: translate3d(8%, -6%, 0) scale(1.08) rotate(12deg);
+    border-radius: 42% 58% 62% 38% / 48% 56% 44% 52%;
+  }
+  66% {
+    transform: translate3d(-4%, 8%, 0) scale(0.94) rotate(-8deg);
+    border-radius: 58% 42% 38% 62% / 40% 60% 40% 60%;
+  }
+}
+
+@keyframes register-blob-b {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1) rotate(0deg);
+    border-radius: 48% 52% 60% 40% / 42% 58% 42% 58%;
+  }
+  40% {
+    transform: translate3d(-10%, 6%, 0) scale(1.12) rotate(-14deg);
+    border-radius: 60% 40% 44% 56% / 55% 45% 55% 45%;
+  }
+  70% {
+    transform: translate3d(6%, -8%, 0) scale(0.9) rotate(10deg);
+    border-radius: 40% 60% 55% 45% / 60% 40% 60% 40%;
+  }
+}
+
+@keyframes register-blob-c {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    border-radius: 55% 45% 40% 60% / 50% 55% 45% 50%;
+  }
+  50% {
+    transform: translate3d(-6%, -10%, 0) scale(1.15);
+    border-radius: 40% 60% 58% 42% / 45% 40% 60% 55%;
+  }
+}
+
 .shimmer {
   background-image: linear-gradient(
     90deg,
@@ -70,6 +114,60 @@
   );
   background-size: 200% 100%;
   animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.register-gradient-bg {
+  position: relative;
+  isolation: isolate;
+  overflow: clip;
+  background: linear-gradient(160deg, #0b2f2c 0%, #134e48 45%, #0f3f3a 100%);
+}
+
+.register-gradient-bg::before,
+.register-gradient-bg::after,
+.register-gradient-bg .register-gradient-orb {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+  filter: blur(48px);
+  will-change: transform, border-radius;
+}
+
+.register-gradient-bg::before {
+  top: -12%;
+  left: -8%;
+  width: min(62vw, 520px);
+  height: min(62vw, 520px);
+  background: radial-gradient(circle at 35% 35%, rgba(245, 197, 24, 0.55), rgba(245, 197, 24, 0.08) 58%, transparent 72%);
+  animation: register-blob-a 16s ease-in-out infinite;
+}
+
+.register-gradient-bg::after {
+  right: -10%;
+  top: 18%;
+  width: min(70vw, 620px);
+  height: min(70vw, 620px);
+  background: radial-gradient(circle at 50% 50%, rgba(45, 174, 149, 0.7), rgba(24, 96, 89, 0.28) 55%, transparent 74%);
+  animation: register-blob-b 20s ease-in-out infinite;
+}
+
+.register-gradient-bg .register-gradient-orb {
+  content: none;
+  bottom: -8%;
+  left: 18%;
+  width: min(68vw, 560px);
+  height: min(58vw, 480px);
+  background: radial-gradient(circle at 45% 40%, rgba(255, 255, 255, 0.28), rgba(45, 174, 149, 0.22) 48%, transparent 70%);
+  animation: register-blob-c 22s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .register-gradient-bg::before,
+  .register-gradient-bg::after,
+  .register-gradient-bg .register-gradient-orb {
+    animation: none;
+  }
 }
 
 html,
