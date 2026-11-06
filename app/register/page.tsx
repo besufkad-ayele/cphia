@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { RegisterSkeleton } from '@/components/status/page-skeletons';
+import { Skeleton } from '@/components/ui/skeleton';
 import { VolunteerIdCard } from '@/components/register/volunteer-id-card';
 import {
   AppShell,
@@ -315,7 +315,12 @@ function RegisterScreen() {
   };
 
   if (!hydrated) {
-    return <RegisterSkeleton />;
+    return (
+      <main className="grid min-h-screen gap-3 bg-primary p-4">
+        <Skeleton className="h-16 w-full" />
+        <Skeleton className="h-96 w-full" />
+      </main>
+    );
   }
 
   if (submittedId) {

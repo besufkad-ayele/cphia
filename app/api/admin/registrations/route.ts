@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { unauthorized, verifyAdminSession } from '@/app/lib/admin/session';
+import { requireFeature } from '@/app/lib/admin/guard';
 import { deriveAdminStatus, isAdminStatus } from '@/app/lib/admin/status';
 import type { RegistrationSummary } from '@/app/lib/admin/types';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
@@ -52,8 +52,8 @@ function sanitizeSearch(value: string) {
 }
 
 export async function GET(request: NextRequest) {
-  const session = await verifyAdminSession(request);
-  if (!session) return unauthorized();
+  const gate = await requireFeature(request, 'volunteers');
+  if (!gate.ok) return gate.error;
 
   const url = request.nextUrl;
   const statusParam = url.searchParams.get('status');

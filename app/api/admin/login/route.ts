@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { cleanPermissions, defaultPermissions } from '@/app/lib/admin/permissions';
 import { getSessionSecret, setAdminCookie, signAdminJwt } from '@/app/lib/admin/session';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
 
@@ -35,11 +36,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'INVALID_CREDENTIALS' }, { status: 401 });
     }
 
+    const role = admin.role === 'super_admin' ? 'super_admin' : 'admin';
+    const stored = cleanPermissions(admin.permissions);
     const token = await signAdminJwt({
       id: admin.id,
       email: admin.email,
-      role: admin.role === 'super_admin' ? 'super_admin' : 'admin',
+      role,
       fullName: admin.full_name || 'Admin',
+      roleKey: typeof admin.role_key === 'string' && admin.role_key ? admin.role_key : role,
+      permissions: role === 'super_admin' ? defaultPermissions('super_admin') : stored.length ? stored : defaultPermissions('admin'),
     });
     const response = NextResponse.json({
       ok: true,

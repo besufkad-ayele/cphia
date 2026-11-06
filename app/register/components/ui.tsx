@@ -47,18 +47,16 @@ export function AppShell({
   children: ReactNode;
 }) {
   return (
-    <main lang={locale} className="min-h-screen bg-muted/40 px-3 pb-32 pt-4 md:px-6 lg:px-10">
-      <header className="mx-auto flex max-w-6xl flex-col gap-3">
-        <Card className="px-4 py-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <Link href="/" className="w-fit">
-              <CphiaLogo className="h-11 w-auto max-w-[200px] object-contain object-left sm:h-12 sm:max-w-[280px]" />
-            </Link>
-            <LanguageSwitcher locale={locale} onChange={onLocaleChange} />
-          </div>
-        </Card>
+    <main lang={locale} className="min-h-screen bg-muted/40 px-3 pb-36 pt-[calc(4.75rem+env(safe-area-inset-top))] md:px-6 md:pt-[calc(5.25rem+env(safe-area-inset-top))] lg:px-10">
+      <header className="fixed inset-x-0 top-0 z-40 border-b border-white/50 bg-white/65 pt-[env(safe-area-inset-top)] shadow-[0_8px_30px_rgba(0,0,0,0.06)] backdrop-blur-2xl backdrop-saturate-150 supports-[backdrop-filter]:bg-white/45">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-3 py-3 md:px-6 lg:px-10">
+          <Link href="/" className="w-fit shrink-0 rounded-xl bg-white/80 px-2 py-1.5 ring-1 ring-black/5 backdrop-blur-sm">
+            <CphiaLogo className="h-10 w-auto max-w-[160px] object-contain object-left sm:h-12 sm:max-w-[280px]" />
+          </Link>
+          <LanguageSwitcher locale={locale} onChange={onLocaleChange} />
+        </div>
       </header>
-      {children}
+      <div className="pt-4">{children}</div>
     </main>
   );
 }
@@ -96,7 +94,7 @@ export function Stepper({
 }) {
   return (
     <Fragment>
-      <Card className="mt-4 block p-3 lg:hidden">
+      <Card className="sticky top-[calc(4.75rem+env(safe-area-inset-top))] z-30 block border-white/50 bg-white/65 p-3 shadow-[0_8px_30px_rgba(0,0,0,0.05)] backdrop-blur-xl backdrop-saturate-150 md:top-[calc(5.25rem+env(safe-area-inset-top))] lg:hidden supports-[backdrop-filter]:bg-white/45">
         <div className="flex items-center justify-between gap-3">
           <strong className="text-sm">Step {step + 1} of {titles.length}</strong>
           <span className="text-xs text-muted-foreground">{titles[step]}</span>
@@ -106,7 +104,7 @@ export function Stepper({
         </div>
       </Card>
 
-      <Card className="sticky top-4 hidden h-fit p-4 lg:block">
+      <Card className="sticky top-[calc(5.25rem+env(safe-area-inset-top))] hidden h-fit border-white/50 bg-white/65 p-4 shadow-[0_8px_30px_rgba(0,0,0,0.05)] backdrop-blur-xl backdrop-saturate-150 lg:block supports-[backdrop-filter]:bg-white/45">
         <ol className="m-0 grid list-none gap-3 p-0">
           {titles.map((title, index) => {
             const done = index < step;
@@ -145,9 +143,9 @@ export function StepFooter({
   disabled?: boolean;
 }) {
   return (
-    <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-background/95 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 backdrop-blur lg:static lg:mt-4 lg:rounded-xl lg:border lg:p-3">
+    <div className="fixed inset-x-0 bottom-0 z-40 border-t border-white/50 bg-white/65 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 shadow-[0_-8px_30px_rgba(0,0,0,0.06)] backdrop-blur-2xl backdrop-saturate-150 supports-[backdrop-filter]:bg-white/45">
       <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
-        <Button type="button" variant="outline" className="h-12 border-primary/40 bg-background text-foreground hover:bg-secondary" onClick={onBack} disabled={!canBack}>
+        <Button type="button" variant="outline" className="h-12 border-primary/40 bg-white/80 text-foreground hover:bg-secondary" onClick={onBack} disabled={!canBack}>
           <ArrowLeft />
           {backLabel}
         </Button>

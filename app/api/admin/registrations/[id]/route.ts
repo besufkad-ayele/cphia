@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { unauthorized, verifyAdminSession } from '@/app/lib/admin/session';
+import { requireFeature } from '@/app/lib/admin/guard';
 import { deriveAdminStatus, isAdminStatus } from '@/app/lib/admin/status';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
 
@@ -36,8 +36,8 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const session = await verifyAdminSession(request);
-  if (!session) return unauthorized();
+  const gate = await requireFeature(request, 'volunteers');
+  if (!gate.ok) return gate.error;
 
   const { id } = await params;
   const supabase = getSupabaseAdmin();
@@ -74,8 +74,8 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const session = await verifyAdminSession(request);
-  if (!session) return unauthorized();
+  const gate = await requireFeature(request, 'volunteers');
+  if (!gate.ok) return gate.error;
 
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
@@ -131,8 +131,8 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const session = await verifyAdminSession(request);
-  if (!session) return unauthorized();
+  const gate = await requireFeature(request, 'volunteers');
+  if (!gate.ok) return gate.error;
 
   const { id } = await params;
   const supabase = getSupabaseAdmin();

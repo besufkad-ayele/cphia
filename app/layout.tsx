@@ -1,11 +1,22 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
-import { Geist } from "next/font/google";
-import { ThemeProvider } from "next-themes";
-import { cn } from "@/lib/utils";
-import { Toaster } from "@/components/ui/sonner";
+import { Inter, Roboto } from 'next/font/google';
+import { ThemeProvider } from 'next-themes';
+import { cn } from '@/lib/utils';
+import { Toaster } from '@/components/ui/sonner';
 
-const geist = Geist({subsets:['latin'],variable:'--font-sans'});
+const inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-sans',
+  display: 'swap',
+});
+
+const roboto = Roboto({
+  subsets: ['latin'],
+  weight: ['400', '500', '700'],
+  variable: '--font-heading',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: 'CPHIA Volunteer Registration',
@@ -24,7 +35,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={cn("font-sans", geist.variable)} suppressHydrationWarning>
+    <html lang="en" className={cn('font-sans', inter.variable, roboto.variable)} suppressHydrationWarning>
       <body>
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
           {children}

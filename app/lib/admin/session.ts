@@ -1,6 +1,7 @@
 import { SignJWT, jwtVerify } from 'jose';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { cleanPermissions, defaultPermissions, type FeatureKey } from '@/app/lib/admin/permissions';
 
 export const ADMIN_SESSION_COOKIE = 'cphia_admin_session';
 export const ADMIN_SESSION_MAX_AGE = 28800;
@@ -10,6 +11,8 @@ export type AdminSession = {
   email: string;
   role: 'super_admin' | 'admin';
   fullName: string;
+  roleKey: string;
+  permissions: FeatureKey[];
 };
 
 function getJwtSecret() {
@@ -30,6 +33,8 @@ export async function signAdminJwt(admin: AdminSession): Promise<string> {
     email: admin.email,
     role: admin.role,
     fullName: admin.fullName,
+    roleKey: admin.roleKey,
+    permissions: admin.permissions,
   })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(admin.id)
@@ -49,7 +54,10 @@ export async function verifyAdminJwt(token: string | undefined): Promise<AdminSe
     const role = payload.role === 'super_admin' ? 'super_admin' : payload.role === 'admin' ? 'admin' : null;
     const fullName = typeof payload.fullName === 'string' ? payload.fullName : 'Admin';
     if (!id || !email || !role) return null;
-    return { id, email, role, fullName };
+    const roleKey = typeof payload.roleKey === 'string' && payload.roleKey ? payload.roleKey : role;
+    const stored = cleanPermissions(payload.permissions);
+    const permissions = role === 'super_admin' ? defaultPermissions('super_admin') : stored.length ? stored : defaultPermissions('admin');
+    return { id, email, role, fullName, roleKey, permissions };
   } catch {
     return null;
   }
