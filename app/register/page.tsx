@@ -25,6 +25,7 @@ import { BackgroundStep, ConsentStep, PersonalStep, ReviewStep, SectorStep } fro
 import { badgeFromForm } from './steps/ReviewStep';
 import { useDraft, SESSION_KEY, STORAGE_KEY, SUBMITTED_KEY } from './hooks/useDraft';
 import { useStepValidation } from './hooks/useStepValidation';
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from '@/app/lib/uploads';
 import type { LanguageRow, RegisterFormValues, StoredPhoto } from './types';
 
 function createLanguageRows(): LanguageRow[] {
@@ -102,6 +103,7 @@ function RegisterScreen() {
   const [serverError, setServerError] = useState<string | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [fanPhotoError, setFanPhotoError] = useState<string | null>(null);
+  const [fanPhotoBackError, setFanPhotoBackError] = useState<string | null>(null);
   const [secondIdPhotoError, setSecondIdPhotoError] = useState<string | null>(null);
   const [ureportError, setUreportError] = useState<string | null>(null);
   const [bankOwnerPhotoError, setBankOwnerPhotoError] = useState<string | null>(null);
@@ -128,6 +130,9 @@ function RegisterScreen() {
     fanPhoto,
     fanPhotoUrl,
     setFanPhoto,
+    fanPhotoBack,
+    fanPhotoBackUrl,
+    setFanPhotoBack,
     secondIdPhoto,
     secondIdPhotoUrl,
     setSecondIdPhoto,
@@ -196,8 +201,8 @@ function RegisterScreen() {
       setError(`${label} must be a JPG, PNG, WEBP${options?.imagesOnly ? '' : ', or PDF'} file.`);
       return;
     }
-    if (file.size > 10_000_000) {
-      setError(`${label} must be under 10 MB.`);
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setError(`${label} is too large (${(file.size / (1024 * 1024)).toFixed(1)} MB). Maximum allowed is ${MAX_UPLOAD_LABEL}.`);
       return;
     }
     try {
@@ -288,6 +293,7 @@ function RegisterScreen() {
         deviceTokenHash,
         ureportScreenshot: ureportPhoto,
         fanPhoto,
+        fanPhotoBack,
         secondIdPhoto,
         bankOwnerIdPhoto: bankOwnerPhoto,
       });
@@ -310,6 +316,8 @@ function RegisterScreen() {
         if (code === 'SECOND_ID_PHOTO_REQUIRED') throw new Error('Upload a photo of the additional ID.');
         if (code === 'UREPORT_SCREENSHOT_REQUIRED') throw new Error('Upload your U-Report screenshot.');
         if (code === 'BANK_OWNER_ID_REQUIRED') throw new Error('Upload a photo of the account owner’s ID.');
+        if (code === 'PHOTO_TOO_LARGE') throw new Error(`A file is too large. Maximum allowed is ${MAX_UPLOAD_LABEL}.`);
+        if (code === 'INVALID_PHOTO') throw new Error('One of the files is not a supported image or PDF.');
         if (!navigator.onLine) throw new Error(t('offline'));
         throw new Error(t('serverBusy'));
       }
@@ -378,10 +386,9 @@ function RegisterScreen() {
           <VolunteerIdCard
             badge={{ ...badge, registrationId: submittedId }}
             photoUrl={photoUrl}
-            ureportUrl={ureportUrl}
             title={t('alreadyRegistered')}
             onCopy={copyId}
-            onDownload={() => void downloadIdAsImage({ ...badge, registrationId: submittedId }, photoUrl, ureportUrl, setServerError)}
+            onDownload={() => void downloadIdAsImage({ ...badge, registrationId: submittedId }, photoUrl, setServerError)}
             onShare={() => void shareId()}
           />
           <p className="mt-3 text-center text-sm text-muted-foreground">{submittedEmailSent ? t('emailSent') : t('emailNotSent')}</p>
@@ -413,6 +420,9 @@ function RegisterScreen() {
                 fanPhoto={fanPhoto}
                 fanPhotoUrl={fanPhotoUrl}
                 fanPhotoError={fanPhotoError}
+                fanPhotoBack={fanPhotoBack}
+                fanPhotoBackUrl={fanPhotoBackUrl}
+                fanPhotoBackError={fanPhotoBackError}
                 secondIdPhoto={secondIdPhoto}
                 secondIdPhotoUrl={secondIdPhotoUrl}
                 secondIdPhotoError={secondIdPhotoError}
@@ -420,8 +430,13 @@ function RegisterScreen() {
                 onToggleSecondId={() => setShowSecondId((prev) => !prev)}
                 onUploadPhoto={(file) => void saveImage(file, setDraftPhoto, setPhotoError, 'Personal photo', { imagesOnly: true })}
                 onRemovePhoto={() => void setDraftPhoto(null)}
-                onUploadFanPhoto={(file) => void saveImage(file, setFanPhoto, setFanPhotoError, 'National ID file')}
+                onUploadFanPhoto={(file) => void saveImage(file, setFanPhoto, setFanPhotoError, 'National ID front')}
                 onRemoveFanPhoto={() => void setFanPhoto(null)}
+                onUploadFanPhotoBack={(file) => void saveImage(file, setFanPhotoBack, setFanPhotoBackError, 'National ID back')}
+                onRemoveFanPhotoBack={() => {
+                  setFanPhotoBackError(null);
+                  void setFanPhotoBack(null);
+                }}
                 onUploadSecondIdPhoto={(file) => void saveImage(file, setSecondIdPhoto, setSecondIdPhotoError, 'ID file')}
                 onRemoveSecondIdPhoto={() => void setSecondIdPhoto(null)}
               />
@@ -451,7 +466,6 @@ function RegisterScreen() {
               <ReviewStep
                 form={form}
                 photoUrl={photoUrl}
-                ureportUrl={ureportUrl}
                 serverError={serverError}
                 isSubmitting={isSubmitting}
                 onEdit={setStep}

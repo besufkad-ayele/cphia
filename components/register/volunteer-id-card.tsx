@@ -8,7 +8,6 @@ import type { VolunteerBadge } from '@/app/register/lib/badge';
 export function VolunteerIdCard({
   badge,
   photoUrl,
-  ureportUrl,
   title,
   onEdit,
   onDownload,
@@ -17,7 +16,6 @@ export function VolunteerIdCard({
 }: {
   badge: VolunteerBadge;
   photoUrl: string | null;
-  ureportUrl?: string | null;
   title?: string;
   onEdit?: () => void;
   onDownload?: () => void;
@@ -63,13 +61,6 @@ export function VolunteerIdCard({
           </dl>
         </div>
       </div>
-
-      {ureportUrl ? (
-        <div className="border-t px-4 py-3">
-          <p className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground">U-Report registration</p>
-          <img src={ureportUrl} alt="U-Report screenshot" className="h-28 w-full rounded-md object-cover" />
-        </div>
-      ) : null}
 
       <footer className="flex flex-wrap items-center justify-between gap-2 border-t bg-muted/40 px-4 py-3">
         <p className="text-xs text-muted-foreground">Keep this ID for check-in and training days.</p>

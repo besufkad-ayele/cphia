@@ -3,11 +3,12 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { CalendarCheck, CalendarRange, ClipboardList, Clock3, Users } from 'lucide-react';
+import { HEALTH_SUBSECTORS, SECTORS } from '@cphia/shared/constants';
 import type { RegistrationMetrics, RegistrationSummary } from '@/app/lib/admin/types';
 import { adminFetch } from '@/app/lib/admin/messages';
 import { hasFeature } from '@/app/lib/admin/permissions';
 import { StatusBadge } from '@/components/admin/status-badge';
-import { Banner, PageHeader } from '@/components/admin/console';
+import { Banner, PageHeader, controlClass } from '@/components/admin/console';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { href } from '@/lib/app-href';
@@ -25,9 +26,13 @@ type BoardShift = {
   cohort: string;
 };
 
+type BreakdownRow = { name: string; count: number };
+
 type Overview = {
   metrics: RegistrationMetrics;
   recent: RegistrationSummary[];
+  breakdown: { sectors: BreakdownRow[]; subsectors: BreakdownRow[] };
+  filters: { sector: string | null; subsector: string | null };
   cohorts: number;
   shiftsToday: number;
   checkedInToday: number;
@@ -39,37 +44,89 @@ type Overview = {
   role: string;
 };
 
+function volunteersHref(sector: string, subsector?: string) {
+  const params = new URLSearchParams();
+  if (sector) params.set('sector', sector);
+  if (subsector) params.set('subsector', subsector);
+  const query = params.toString();
+  return href(query ? `/admin/volunteers?${query}` : '/admin/volunteers');
+}
+
 export default function AdminDashboardPage() {
   const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [sector, setSector] = useState('');
+  const [subsector, setSubsector] = useState('');
 
   useEffect(() => {
+    setLoading(true);
     const date = new Date().toLocaleDateString('en-CA');
-    adminFetch<Overview>(`/api/admin/overview?date=${date}`)
+    const params = new URLSearchParams({ date });
+    if (sector) params.set('sector', sector);
+    if (subsector) params.set('subsector', subsector);
+    adminFetch<Overview>(`/api/admin/overview?${params}`)
       .then(setData)
       .catch((reason: Error) => setError(reason.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [sector, subsector]);
 
   const metrics = data?.metrics ?? emptyMetrics;
   const session = { role: data?.role || 'admin', permissions: data?.permissions ?? [] };
   const cards = [
-    { label: 'Volunteers', value: metrics.total, note: `${metrics.pending} pending · ${metrics.approved} approved`, href: '/admin/volunteers', icon: Users, feature: 'volunteers' as const },
-    { label: 'On duty today', value: data?.shiftsToday ?? 0, note: `${data?.checkedInToday ?? 0} checked in`, href: '/admin/attendance', icon: CalendarCheck, feature: 'attendance' as const },
-    { label: 'Open cohorts', value: data?.cohorts ?? 0, note: 'Planning, live, and active events', href: '/admin/cohorts', icon: CalendarRange, feature: 'cohorts' as const },
-    { label: 'Live forms', value: data?.formsPublished ?? 0, note: 'Published briefings and checklists', href: '/admin/forms', icon: ClipboardList, feature: 'forms' as const },
-    { label: 'Shifts', value: data?.shiftsToday ?? 0, note: 'Roster blocks scheduled today', href: '/admin/shifts', icon: Clock3, feature: 'shifts' as const },
+    { label: 'Volunteers', value: metrics.total, note: `${metrics.pending} pending · ${metrics.approved} approved`, href: volunteersHref(sector, subsector), icon: Users, feature: 'volunteers' as const },
+    { label: 'On duty today', value: data?.shiftsToday ?? 0, note: `${data?.checkedInToday ?? 0} checked in`, href: href('/admin/attendance'), icon: CalendarCheck, feature: 'attendance' as const },
+    { label: 'Open cohorts', value: data?.cohorts ?? 0, note: 'Planning, live, and active events', href: href('/admin/cohorts'), icon: CalendarRange, feature: 'cohorts' as const },
+    { label: 'Live forms', value: data?.formsPublished ?? 0, note: 'Published briefings and checklists', href: href('/admin/forms'), icon: ClipboardList, feature: 'forms' as const },
+    { label: 'Shifts', value: data?.shiftsToday ?? 0, note: 'Roster blocks scheduled today', href: href('/admin/shifts'), icon: Clock3, feature: 'shifts' as const },
   ].filter((card) => !data || hasFeature(session, card.feature));
+
+  const showHealthSubs = !sector || sector === 'Health';
+  const filterNote = [sector || null, subsector || null].filter(Boolean).join(' · ') || 'All sectors';
 
   return (
     <div className="grid gap-6">
       <PageHeader
         kicker="CPHIA-26 COHORT"
         title="Desk at a glance"
-        description="Registrations, today’s roster, and the modules this role can open."
-      />
+        description="Filter by sector and health sub-sector to see counts, recent registrations, and jump into the matching volunteer list."
+      >
+        <div className="grid gap-2 sm:grid-cols-2">
+          <label className="grid gap-1 text-xs text-zinc-400">
+            Sector
+            <select
+              className={controlClass}
+              value={sector}
+              onChange={(event) => {
+                const next = event.target.value;
+                setSector(next);
+                if (next && next !== 'Health') setSubsector('');
+              }}
+            >
+              <option value="">All sectors</option>
+              {SECTORS.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+          <label className="grid gap-1 text-xs text-zinc-400">
+            Health sub-sector
+            <select
+              className={controlClass}
+              value={subsector}
+              disabled={!showHealthSubs}
+              onChange={(event) => setSubsector(event.target.value)}
+            >
+              <option value="">All sub-sectors</option>
+              {HEALTH_SUBSECTORS.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </PageHeader>
       <Banner message={error || (data?.migrationRequired ? 'Apply supabase/migrations/009_ops_modules.sql to turn on attendance, shifts, cohorts, forms, and roles.' : null)} />
+      <p className="text-sm text-zinc-400">Showing: <span className="text-[#f6e7b2]">{filterNote}</span></p>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {loading
@@ -79,7 +136,7 @@ export default function AdminDashboardPage() {
           : cards.map((card) => {
               const Icon = card.icon;
               return (
-                <Link key={card.label} href={href(card.href)}>
+                <Link key={card.label} href={card.href}>
                   <Card className="h-full transition hover:ring-[#e7c15a]/40">
                     <CardHeader>
                       <CardDescription className="flex items-center gap-2"><Icon className="size-4 text-[#e7c15a]" />{card.label}</CardDescription>
@@ -92,7 +149,53 @@ export default function AdminDashboardPage() {
             })}
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+      <div className="grid gap-4 xl:grid-cols-[1fr_1fr_1fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>By sector</CardTitle>
+            <CardDescription>Registration counts for the current filter.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-2">
+            {loading ? <Skeleton className="h-16 w-full" /> : null}
+            {(data?.breakdown.sectors ?? []).map((row) => (
+              <Link
+                key={row.name}
+                href={volunteersHref(row.name)}
+                className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/25 px-3 py-3 text-sm hover:bg-white/5"
+              >
+                <span className="text-white">{row.name}</span>
+                <span className="text-[#f6e7b2]">{row.count}</span>
+              </Link>
+            ))}
+            {!loading && (data?.breakdown.sectors.length ?? 0) === 0 ? (
+              <p className="text-sm text-zinc-400">No registrations match this filter.</p>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Health sub-sectors</CardTitle>
+            <CardDescription>Useful when staffing facility vs public-health roles.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-2">
+            {loading ? <Skeleton className="h-16 w-full" /> : null}
+            {(data?.breakdown.subsectors ?? []).map((row) => (
+              <Link
+                key={row.name}
+                href={volunteersHref('Health', row.name)}
+                className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/25 px-3 py-3 text-sm hover:bg-white/5"
+              >
+                <span className="text-white">{row.name}</span>
+                <span className="text-[#f6e7b2]">{row.count}</span>
+              </Link>
+            ))}
+            {!loading && (data?.breakdown.subsectors.length ?? 0) === 0 ? (
+              <p className="text-sm text-zinc-400">No health sub-sector data in this filter.</p>
+            ) : null}
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle>Today’s floor</CardTitle>
@@ -114,30 +217,34 @@ export default function AdminDashboardPage() {
             ) : null}
           </CardContent>
         </Card>
-
-        <Card>
-          <CardHeader className="flex-row items-center justify-between">
-            <div>
-              <CardTitle>Recent registrations</CardTitle>
-              <CardDescription>{metrics.review + metrics.flagged} still need a review look.</CardDescription>
-            </div>
-            <Link href={href('/admin/volunteers')} className="text-sm text-[#e7c15a]">View all</Link>
-          </CardHeader>
-          <CardContent className="grid gap-2">
-            {loading ? Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-12 w-full" />) : null}
-            {(data?.recent ?? []).map((row) => (
-              <Link key={row.id} href={href(`/admin/volunteers/${row.id}`)} className="flex min-h-12 items-center justify-between gap-3 rounded-2xl border border-white/10 px-3 py-2 text-sm hover:bg-white/5">
-                <div className="min-w-0">
-                  <p className="truncate font-medium text-white">{row.name}</p>
-                  <p className="truncate text-xs text-zinc-400">{row.registrationId} · {row.sector}</p>
-                </div>
-                <StatusBadge status={row.status} />
-              </Link>
-            ))}
-            {!loading && (data?.recent.length ?? 0) === 0 ? <p className="text-sm text-zinc-400">No recent volunteers for this role.</p> : null}
-          </CardContent>
-        </Card>
       </div>
+
+      <Card>
+        <CardHeader className="flex-row items-center justify-between">
+          <div>
+            <CardTitle>Recent registrations</CardTitle>
+            <CardDescription>{metrics.review + metrics.flagged} still need a review look in this filter.</CardDescription>
+          </div>
+          <Link href={volunteersHref(sector, subsector)} className="text-sm text-[#e7c15a]">View filtered list</Link>
+        </CardHeader>
+        <CardContent className="grid gap-2">
+          {loading ? Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-12 w-full" />) : null}
+          {(data?.recent ?? []).map((row) => (
+            <Link key={row.id} href={href(`/admin/volunteers/${row.id}`)} className="flex min-h-12 items-center justify-between gap-3 rounded-2xl border border-white/10 px-3 py-2 text-sm hover:bg-white/5">
+              <div className="min-w-0">
+                <p className="truncate font-medium text-white">{row.name}</p>
+                <p className="truncate text-xs text-zinc-400">
+                  {row.registrationId} · {row.sector}
+                  {(row.healthSubsectors?.length ?? 0) > 0 ? ` · ${row.healthSubsectors?.join(', ')}` : ''}
+                  {row.cohort ? ` · ${row.cohort}` : ''}
+                </p>
+              </div>
+              <StatusBadge status={row.status} />
+            </Link>
+          ))}
+          {!loading && (data?.recent.length ?? 0) === 0 ? <p className="text-sm text-zinc-400">No recent volunteers for this filter.</p> : null}
+        </CardContent>
+      </Card>
     </div>
   );
 }

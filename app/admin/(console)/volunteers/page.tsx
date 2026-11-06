@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Download, Search } from 'lucide-react';
+import { HEALTH_SUBSECTORS, SECTORS } from '@cphia/shared/constants';
 import { toast } from 'sonner';
 import type { AdminStatus } from '@/app/lib/admin/status';
 import { ADMIN_STATUSES } from '@/app/lib/admin/status';
@@ -41,10 +42,18 @@ const PAGE_SIZE = 25;
 function VolunteersTable() {
   const searchParams = useSearchParams();
   const initialStatus = searchParams.get('status');
+  const initialSector = searchParams.get('sector') ?? '';
+  const initialSubsector = searchParams.get('subsector') ?? '';
   const [rows, setRows] = useState<RegistrationSummary[]>([]);
   const [metrics, setMetrics] = useState<RegistrationMetrics>(emptyMetrics);
   const [status, setStatus] = useState<'all' | AdminStatus>(
     ADMIN_STATUSES.includes(initialStatus as AdminStatus) ? (initialStatus as AdminStatus) : 'all',
+  );
+  const [sector, setSector] = useState(
+    (SECTORS as readonly string[]).includes(initialSector) ? initialSector : '',
+  );
+  const [subsector, setSubsector] = useState(
+    (HEALTH_SUBSECTORS as readonly string[]).includes(initialSubsector) ? initialSubsector : '',
   );
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -72,19 +81,22 @@ function VolunteersTable() {
     const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
     if (status !== 'all') params.set('status', status);
     if (debouncedSearch) params.set('search', debouncedSearch);
+    if (sector) params.set('sector', sector);
+    if (subsector) params.set('subsector', subsector);
     const response = await fetch(`/api/admin/registrations?${params}`);
     const payload = await response.json();
     setRows(payload.registrations ?? []);
     setMetrics(payload.metrics ?? emptyMetrics);
     setTotal(payload.total ?? 0);
     setLoading(false);
-  }, [page, status, debouncedSearch]);
+  }, [page, status, debouncedSearch, sector, subsector]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const showHealthSubs = !sector || sector === 'Health';
 
   async function setReviewStatus(id: string, action: AdminStatus) {
     const response = await fetch(`/api/admin/registrations/${id}`, {
@@ -116,6 +128,8 @@ function VolunteersTable() {
     const params = new URLSearchParams({ columns: selectedColumns.join(','), format });
     if (status !== 'all') params.set('status', status);
     if (debouncedSearch) params.set('search', debouncedSearch);
+    if (sector) params.set('sector', sector);
+    if (subsector) params.set('subsector', subsector);
     window.location.assign(`/api/admin/registrations/export?${params}`);
     setExportOpen(false);
   }
@@ -136,7 +150,7 @@ function VolunteersTable() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Volunteers</h1>
-          <p className="text-sm text-muted-foreground">Search, review, update, export, and manage the CPHIA-26 cohort.</p>
+          <p className="text-sm text-muted-foreground">Search, filter by sector, review, update, export, and manage the CPHIA-26 cohort.</p>
         </div>
         <Button className="h-11" onClick={() => setExportOpen(true)}>
           <Download className="size-4" />
@@ -147,7 +161,7 @@ function VolunteersTable() {
       <Card>
         <CardHeader className="gap-4">
           <CardTitle className="text-base">Registrations</CardTitle>
-          <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+          <div className="grid gap-3">
             <div className="relative">
               <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -156,6 +170,43 @@ function VolunteersTable() {
                 placeholder="Search name, FAN, phone, email, or ID"
                 className="h-11 pl-9"
               />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="grid gap-1.5 text-sm">
+                <span className="text-muted-foreground">Sector</span>
+                <select
+                  className="h-11 rounded-md border border-input bg-background px-3 text-sm"
+                  value={sector}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    setSector(next);
+                    if (next && next !== 'Health') setSubsector('');
+                    setPage(1);
+                  }}
+                >
+                  <option value="">All sectors</option>
+                  {SECTORS.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="grid gap-1.5 text-sm">
+                <span className="text-muted-foreground">Health sub-sector</span>
+                <select
+                  className="h-11 rounded-md border border-input bg-background px-3 text-sm disabled:opacity-50"
+                  value={subsector}
+                  disabled={!showHealthSubs}
+                  onChange={(event) => {
+                    setSubsector(event.target.value);
+                    setPage(1);
+                  }}
+                >
+                  <option value="">All sub-sectors</option>
+                  {HEALTH_SUBSECTORS.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </label>
             </div>
             <div className="flex flex-wrap gap-2">
               {filters.map((filter) => (
@@ -208,7 +259,12 @@ function VolunteersTable() {
                         <p className="text-xs text-muted-foreground">{row.email}</p>
                       </TableCell>
                       <TableCell className="font-mono text-xs">{row.fanNumber || '—'}</TableCell>
-                      <TableCell>{row.sector}</TableCell>
+                      <TableCell>
+                        <p>{row.sector}</p>
+                        {(row.healthSubsectors?.length ?? 0) > 0 ? (
+                          <p className="text-xs text-muted-foreground">{row.healthSubsectors?.join(', ')}</p>
+                        ) : null}
+                      </TableCell>
                       <TableCell><StatusBadge status={row.status} /></TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
@@ -240,7 +296,7 @@ function VolunteersTable() {
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Export volunteers</DialogTitle>
-            <DialogDescription>Choose columns, then download Excel or CSV. Current search and status filters apply.</DialogDescription>
+            <DialogDescription>Choose columns, then download Excel or CSV. Current search, status, sector, and sub-sector filters apply. Cohort is included by default.</DialogDescription>
           </DialogHeader>
           <div className="grid max-h-72 gap-2 overflow-y-auto">
             {EXPORT_COLUMNS.map((column) => (

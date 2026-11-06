@@ -9,6 +9,7 @@ export function buildRegistrationFormData(
     deviceFingerprintHash?: string;
     ureportScreenshot?: StoredPhoto | null;
     fanPhoto?: StoredPhoto | null;
+    fanPhotoBack?: StoredPhoto | null;
     secondIdPhoto?: StoredPhoto | null;
     bankOwnerIdPhoto?: StoredPhoto | null;
   },
@@ -105,6 +106,9 @@ export function buildRegistrationFormData(
   }
   if (extras?.fanPhoto) {
     formData.append('fanPhoto', extras.fanPhoto.blob, extras.fanPhoto.fileName);
+  }
+  if (extras?.fanPhotoBack) {
+    formData.append('fanPhotoBack', extras.fanPhotoBack.blob, extras.fanPhotoBack.fileName);
   }
   if (extras?.secondIdPhoto) {
     formData.append('secondIdPhoto', extras.secondIdPhoto.blob, extras.secondIdPhoto.fileName);

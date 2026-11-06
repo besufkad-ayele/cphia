@@ -2,6 +2,12 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import ExcelJS from 'exceljs';
 import { requireFeature } from '@/app/lib/admin/guard';
+import {
+  applyRegistrationFilters,
+  parseSector,
+  parseSubsector,
+  sanitizeSearch,
+} from '@/app/lib/admin/registration-filters';
 import { isAdminStatus } from '@/app/lib/admin/status';
 import { EXPORT_COLUMNS } from '@/app/lib/admin/types';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
@@ -33,19 +39,21 @@ export async function GET(request: NextRequest) {
     .filter((item): item is ExportColumnId => allowed.has(item));
   const selected: ExportColumnId[] = columns.length
     ? columns
-    : ['registration_id', 'first_name', 'last_name', 'email', 'phone', 'sector'];
+    : ['registration_id', 'first_name', 'last_name', 'email', 'phone', 'sector', 'health_subsectors', 'cohort'];
   const format = request.nextUrl.searchParams.get('format') === 'xlsx' ? 'xlsx' : 'csv';
   const statusParam = request.nextUrl.searchParams.get('status');
-  const search = (request.nextUrl.searchParams.get('search') ?? '').replace(/[,.%()\\]/g, ' ').trim().slice(0, 80);
+  const search = sanitizeSearch(request.nextUrl.searchParams.get('search') ?? '');
   const status = statusParam && isAdminStatus(statusParam) ? statusParam : null;
+  const sector = parseSector(request.nextUrl.searchParams.get('sector'));
+  const subsector = parseSubsector(request.nextUrl.searchParams.get('subsector'));
+  const id = request.nextUrl.searchParams.get('id');
 
   const supabase = getSupabaseAdmin();
   let query = supabase.from('registrations').select('*').order('created_at', { ascending: false });
-  if (status) query = query.eq('review_status', status);
-  if (search) {
-    query = query.or(
-      `first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%,fan_number.ilike.%${search}%,registration_id.ilike.%${search}%`,
-    );
+  if (id) {
+    query = query.eq('id', id);
+  } else {
+    query = applyRegistrationFilters(query as never, { status, search, sector, subsector }) as typeof query;
   }
 
   const { data, error } = await query;
@@ -54,21 +62,21 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'EXPORT_FAILED' }, { status: 500 });
   }
 
-  const labels = selected.map((id) => EXPORT_COLUMNS.find((column) => column.id === id)?.label ?? id);
+  const labels = selected.map((col) => EXPORT_COLUMNS.find((column) => column.id === col)?.label ?? col);
   const stamp = new Date().toISOString().slice(0, 10);
 
   if (format === 'xlsx') {
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'CPHIA Admin';
     const sheet = workbook.addWorksheet('Volunteers');
-    sheet.columns = selected.map((id, index) => ({
+    sheet.columns = selected.map((col, index) => ({
       header: labels[index],
-      key: id,
+      key: col,
       width: Math.max(14, labels[index].length + 4),
     }));
     for (const row of data ?? []) {
       const record = row as Record<string, unknown>;
-      sheet.addRow(Object.fromEntries(selected.map((id) => [id, cellValue(record[id])])));
+      sheet.addRow(Object.fromEntries(selected.map((col) => [col, cellValue(record[col])])));
     }
     sheet.getRow(1).font = { bold: true };
     const buffer = await workbook.xlsx.writeBuffer();
@@ -80,7 +88,7 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const rows = (data ?? []).map((row) => selected.map((id) => csvCell((row as Record<string, unknown>)[id])).join(','));
+  const rows = (data ?? []).map((row) => selected.map((col) => csvCell((row as Record<string, unknown>)[col])).join(','));
   const csv = [labels.map(csvCell).join(','), ...rows].join('\n');
 
   return new NextResponse(csv, {

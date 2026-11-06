@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { registrationSchema } from '@cphia/shared/schemas';
 import { sendRegistrationEmail } from '@/app/lib/email/registration';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
+import { MAX_UPLOAD_BYTES } from '@/app/lib/uploads';
 
 export const runtime = 'nodejs';
 
-const MAX_PHOTO_BYTES = 3 * 1024 * 1024;
+const MAX_PHOTO_BYTES = MAX_UPLOAD_BYTES;
 const allowedMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf']);
 const portraitMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const DUPLICATE_CODES = new Set(['DUPLICATE_EMAIL', 'DUPLICATE_PHONE', 'DUPLICATE_FAN', 'DUPLICATE_DEVICE', 'DUPLICATE']);
@@ -81,6 +82,7 @@ function toRpcPayload(
   photoPath: string,
   ureportPath: string | null,
   fanPhotoPath: string | null,
+  fanPhotoBackPath: string | null,
   secondIdPhotoPath: string | null,
   bankOwnerIdPhotoPath: string | null,
 ) {
@@ -99,6 +101,7 @@ function toRpcPayload(
     second_id_number: parsed.secondIdNumber || null,
     photo_path: photoPath,
     fan_photo_path: fanPhotoPath,
+    fan_photo_back_path: fanPhotoBackPath,
     second_id_photo_path: secondIdPhotoPath,
     phone: parsed.phone,
     secondary_phone: parsed.secondaryPhone || null,
@@ -142,7 +145,14 @@ export async function POST(request: NextRequest) {
     const payload: Record<string, unknown> = {};
 
     for (const [key, value] of formData.entries()) {
-      if (key === 'photo' || key === 'ureportScreenshot' || key === 'fanPhoto' || key === 'secondIdPhoto' || key === 'bankOwnerIdPhoto') continue;
+      if (
+        key === 'photo'
+        || key === 'ureportScreenshot'
+        || key === 'fanPhoto'
+        || key === 'fanPhotoBack'
+        || key === 'secondIdPhoto'
+        || key === 'bankOwnerIdPhoto'
+      ) continue;
       if (key === 'languages' || key === 'healthSubsectors') {
         payload[key] = JSON.parse(String(value));
         continue;
@@ -187,6 +197,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: fanUploaded.error }, { status: fanUploaded.error === 'REGISTRATION_FAILED' ? 500 : 400 });
     }
 
+    let fanBackPath: string | null = null;
+    const fanBackFile = formData.get('fanPhotoBack');
+    if (fanBackFile && typeof fanBackFile !== 'string') {
+      const attachment = fanBackFile as File;
+      const extension = extensionForMime(attachment.type);
+      const fanBackUploaded = await uploadAttachment(attachment, `${registration.idempotencyKey}-fan-back.${extension}`);
+      if ('error' in fanBackUploaded) {
+        return NextResponse.json({ error: fanBackUploaded.error }, { status: fanBackUploaded.error === 'REGISTRATION_FAILED' ? 500 : 400 });
+      }
+      fanBackPath = fanBackUploaded.path;
+    }
+
     let secondIdPath: string | null = null;
     if (registration.secondIdType && registration.secondIdNumber) {
       const secondUploaded = await requireUpload('secondIdPhoto', '-second-id', 'SECOND_ID_PHOTO_REQUIRED');
@@ -216,7 +238,7 @@ export async function POST(request: NextRequest) {
 
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase.rpc('register_volunteer', {
-      payload: toRpcPayload(registration, uploaded.path, ureportPath, fanUploaded.path, secondIdPath, bankOwnerPath),
+      payload: toRpcPayload(registration, uploaded.path, ureportPath, fanUploaded.path, fanBackPath, secondIdPath, bankOwnerPath),
     });
 
     if (error) {

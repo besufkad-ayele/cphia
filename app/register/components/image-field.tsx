@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef } from 'react';
+import { MAX_UPLOAD_LABEL } from '@/app/lib/uploads';
 import { Field, PhotoUpload } from './ui';
 import type { StoredPhoto } from '../types';
 
@@ -35,14 +36,18 @@ export function ImageField({
   const takeRef = useRef<HTMLInputElement | null>(null);
   const chooseRef = useRef<HTMLInputElement | null>(null);
   const allowPdf = variant === 'document';
+  const formatHint = allowPdf ? `JPG, PNG, WEBP, or PDF · max ${MAX_UPLOAD_LABEL}` : `JPG, PNG, or WEBP · max ${MAX_UPLOAD_LABEL}`;
+  const sizeLabel = photo
+    ? `${Math.round(photo.size / 1024)} KB · max ${MAX_UPLOAD_LABEL}`
+    : `Max ${MAX_UPLOAD_LABEL}`;
 
   return (
-    <Field id={id} label={label} hint={hint ?? (allowPdf ? 'JPG, PNG, WEBP, or PDF' : 'JPG, PNG, or WEBP')} error={error}>
+    <Field id={id} label={label} hint={hint ? `${hint} ${formatHint}` : formatHint} error={error}>
       <PhotoUpload
         photoUrl={photoUrl}
         photoName={photo?.fileName}
         fileType={photo?.type}
-        sizeLabel={photo ? `${Math.round(photo.size / 1024)} KB` : undefined}
+        sizeLabel={sizeLabel}
         required={required}
         variant={variant}
         onTake={() => takeRef.current?.click()}

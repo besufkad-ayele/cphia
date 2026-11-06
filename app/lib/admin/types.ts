@@ -9,6 +9,7 @@ export type RegistrationSummary = {
   secondaryPhone: string;
   fanNumber: string;
   sector: string;
+  healthSubsectors?: string[];
   residenceRegion: string;
   status: AdminStatus;
   createdAt: string;

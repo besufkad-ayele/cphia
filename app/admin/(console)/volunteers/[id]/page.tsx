@@ -1,17 +1,30 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
+import { Download, Upload } from 'lucide-react';
+import {
+  ALL_BANKS,
+  EDUCATION_LEVELS,
+  ETHIOPIA_REGIONS,
+  HEALTH_SUBSECTORS,
+  NATIONALITIES,
+  SECTORS,
+  SECOND_ID_TYPES,
+} from '@cphia/shared/constants';
 import { toast } from 'sonner';
 import type { AdminStatus } from '@/app/lib/admin/status';
+import { ADMIN_STATUSES } from '@/app/lib/admin/status';
+import { EXPORT_COLUMNS } from '@/app/lib/admin/types';
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from '@/app/lib/uploads';
 import { StatusBadge } from '@/components/admin/status-badge';
 import { href } from '@/lib/app-href';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { AdminStatus as MissingVolunteer } from '@/components/status/admin-status';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -25,6 +38,18 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
+type CohortDetail = {
+  id: string | null;
+  name: string;
+  code: string;
+  venue: string | null;
+  startsOn: string | null;
+  endsOn: string | null;
+  description: string | null;
+  status: string | null;
+  capacity: number | null;
+};
+
 type Detail = Record<string, unknown> & {
   id: string;
   registration_id: string;
@@ -32,45 +57,68 @@ type Detail = Record<string, unknown> & {
   photoUrl?: string | null;
   ureportUrl?: string | null;
   fanPhotoUrl?: string | null;
+  fanPhotoBackUrl?: string | null;
   secondIdPhotoUrl?: string | null;
   bankOwnerIdPhotoUrl?: string | null;
+  cohortDetail?: CohortDetail | null;
   registration_languages?: Array<{ language: string; proficiency: string; language_group?: string }>;
 };
 
-const FIELD_ROWS: Array<{ key: string; label: string; editable?: boolean }> = [
+type FieldKind = 'text' | 'number' | 'select' | 'boolean' | 'textarea' | 'readonly';
+
+type FieldRow = {
+  key: string;
+  label: string;
+  kind?: FieldKind;
+  options?: readonly string[];
+};
+
+const FIELD_ROWS: FieldRow[] = [
   { key: 'registration_id', label: 'Registration ID' },
-  { key: 'cohort', label: 'Cohort' },
-  { key: 'first_name', label: 'First name', editable: true },
-  { key: 'middle_name', label: 'Middle name', editable: true },
-  { key: 'last_name', label: 'Last name', editable: true },
-  { key: 'full_name_amharic', label: 'Full name (Amharic)', editable: true },
-  { key: 'sex', label: 'Sex', editable: true },
-  { key: 'age', label: 'Age', editable: true },
-  { key: 'nationality', label: 'Nationality', editable: true },
-  { key: 'fan_number', label: 'FAN number', editable: true },
-  { key: 'second_id_type', label: 'Second ID type' },
+  { key: 'cohort', label: 'Cohort code' },
+  { key: 'first_name', label: 'First name' },
+  { key: 'middle_name', label: 'Middle name' },
+  { key: 'last_name', label: 'Last name' },
+  { key: 'full_name_amharic', label: 'Full name (Amharic)' },
+  { key: 'sex', label: 'Sex', kind: 'select', options: ['Male', 'Female'] },
+  { key: 'age', label: 'Age', kind: 'number' },
+  { key: 'nationality', label: 'Nationality', kind: 'select', options: NATIONALITIES },
+  { key: 'fan_number', label: 'FAN number' },
+  { key: 'second_id_type', label: 'Second ID type', kind: 'select', options: ['', ...SECOND_ID_TYPES] },
   { key: 'second_id_number', label: 'Second ID number' },
-  { key: 'phone', label: 'Phone', editable: true },
-  { key: 'secondary_phone', label: 'Secondary phone', editable: true },
+  { key: 'phone', label: 'Phone' },
+  { key: 'secondary_phone', label: 'Secondary phone' },
   { key: 'whatsapp_number', label: 'WhatsApp' },
-  { key: 'email', label: 'Email', editable: true },
-  { key: 'residence_region', label: 'Region', editable: true },
-  { key: 'residence_detail', label: 'Residence detail', editable: true },
-  { key: 'profession', label: 'Profession', editable: true },
-  { key: 'education_level', label: 'Education', editable: true },
-  { key: 'emergency_name', label: 'Emergency name', editable: true },
-  { key: 'emergency_phone', label: 'Emergency phone', editable: true },
-  { key: 'emergency_relationship', label: 'Emergency relationship', editable: true },
-  { key: 'sector', label: 'Sector', editable: true },
-  { key: 'health_subsectors', label: 'Health sub-sector' },
-  { key: 'bank_name', label: 'Bank', editable: true },
-  { key: 'bank_account_name', label: 'Account owner name', editable: true },
-  { key: 'bank_account_number', label: 'Account number', editable: true },
-  { key: 'bank_account_other_owner', label: 'Account owned by someone else' },
-  { key: 'ureport_registered', label: 'U-Report registered' },
-  { key: 'review_status', label: 'Review status' },
-  { key: 'created_at', label: 'Submitted' },
+  { key: 'phone_is_whatsapp', label: 'Phone is WhatsApp', kind: 'boolean' },
+  { key: 'no_whatsapp', label: 'No WhatsApp', kind: 'boolean' },
+  { key: 'email', label: 'Email' },
+  { key: 'residence_region', label: 'Region', kind: 'select', options: ETHIOPIA_REGIONS },
+  { key: 'residence_detail', label: 'Residence detail' },
+  { key: 'profession', label: 'Profession' },
+  { key: 'education_level', label: 'Education', kind: 'select', options: EDUCATION_LEVELS },
+  { key: 'emergency_name', label: 'Emergency name' },
+  { key: 'emergency_phone', label: 'Emergency phone' },
+  { key: 'emergency_relationship', label: 'Emergency relationship' },
+  { key: 'sector', label: 'Sector', kind: 'select', options: SECTORS },
+  { key: 'health_subsectors', label: 'Health sub-sector', kind: 'select', options: ['', ...HEALTH_SUBSECTORS] },
+  { key: 'bank_name', label: 'Bank', kind: 'select', options: ALL_BANKS },
+  { key: 'bank_account_name', label: 'Account owner name' },
+  { key: 'bank_account_number', label: 'Account number' },
+  { key: 'bank_account_other_owner', label: 'Account owned by someone else', kind: 'boolean' },
+  { key: 'ureport_registered', label: 'U-Report registered', kind: 'boolean' },
+  { key: 'review_status', label: 'Review status', kind: 'select', options: ADMIN_STATUSES },
+  { key: 'ui_language', label: 'UI language', kind: 'select', options: ['en', 'am', 'om', 'ti'] },
+  { key: 'created_at', label: 'Submitted', kind: 'readonly' },
 ];
+
+const IMAGE_SLOTS = [
+  { key: 'photo', label: 'Volunteer photo', urlKey: 'photoUrl' as const, accept: 'image/jpeg,image/png,image/webp', requiredHint: 'JPG, PNG, or WEBP' },
+  { key: 'fanPhoto', label: 'National ID (front)', urlKey: 'fanPhotoUrl' as const, accept: 'image/jpeg,image/png,image/webp,application/pdf', requiredHint: 'JPG, PNG, WEBP, or PDF' },
+  { key: 'fanPhotoBack', label: 'National ID (back)', urlKey: 'fanPhotoBackUrl' as const, accept: 'image/jpeg,image/png,image/webp,application/pdf', requiredHint: 'JPG, PNG, WEBP, or PDF' },
+  { key: 'secondIdPhoto', label: 'Second ID', urlKey: 'secondIdPhotoUrl' as const, accept: 'image/jpeg,image/png,image/webp,application/pdf', requiredHint: 'JPG, PNG, WEBP, or PDF' },
+  { key: 'bankOwnerIdPhoto', label: 'Account owner ID', urlKey: 'bankOwnerIdPhotoUrl' as const, accept: 'image/jpeg,image/png,image/webp,application/pdf', requiredHint: 'JPG, PNG, WEBP, or PDF' },
+  { key: 'ureportScreenshot', label: 'U-Report screenshot', urlKey: 'ureportUrl' as const, accept: 'image/jpeg,image/png,image/webp,application/pdf', requiredHint: 'JPG, PNG, WEBP, or PDF' },
+] as const;
 
 function displayValue(value: unknown) {
   if (Array.isArray(value)) return value.join(', ') || '—';
@@ -79,13 +127,131 @@ function displayValue(value: unknown) {
   return String(value);
 }
 
+function draftFromDetail(payload: Detail) {
+  const next: Record<string, string> = {};
+  for (const row of FIELD_ROWS) {
+    if (row.kind === 'readonly') continue;
+    const value = payload[row.key];
+    if (Array.isArray(value)) next[row.key] = value[0] ? String(value[0]) : '';
+    else if (typeof value === 'boolean') next[row.key] = value ? 'true' : 'false';
+    else next[row.key] = value == null ? '' : String(value);
+  }
+  next.languages = (payload.registration_languages ?? [])
+    .map((item) => `${item.language} (${item.proficiency})`)
+    .join(', ');
+  return next;
+}
+
+function ImageEditor({
+  label,
+  url,
+  accept,
+  hint,
+  busy,
+  onUpload,
+  onRemove,
+}: {
+  label: string;
+  url?: string | null;
+  accept: string;
+  hint: string;
+  busy: boolean;
+  onUpload: (file: File) => Promise<void>;
+  onRemove: () => Promise<void>;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [localPreview, setLocalPreview] = useState<string | null>(null);
+  const [localIsPdf, setLocalIsPdf] = useState(false);
+  const preview = localPreview || url;
+  const isPdf = localPreview ? localIsPdf : Boolean(url?.toLowerCase().includes('.pdf'));
+
+  useEffect(() => {
+    return () => {
+      if (localPreview) URL.revokeObjectURL(localPreview);
+    };
+  }, [localPreview]);
+
+  useEffect(() => {
+    if (!busy && url) {
+      setLocalPreview((current) => {
+        if (current) URL.revokeObjectURL(current);
+        return null;
+      });
+      setLocalIsPdf(false);
+    }
+  }, [busy, url]);
+
+  return (
+    <div className="grid gap-2 border-b border-border/60 pb-4 last:border-b-0 last:pb-0">
+      <div className="flex items-center justify-between gap-2">
+        <Label>{label}</Label>
+        {busy ? <span className="text-xs text-muted-foreground">Updating…</span> : null}
+      </div>
+      {preview && !isPdf ? (
+        <img src={preview} alt={label} className="w-full rounded-lg object-cover" />
+      ) : preview ? (
+        <p className="rounded-lg border px-3 py-6 text-center text-sm text-muted-foreground">PDF on file</p>
+      ) : (
+        <p className="text-sm text-muted-foreground">No file</p>
+      )}
+      <p className="text-xs text-muted-foreground">{hint} · max {MAX_UPLOAD_LABEL}</p>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          className="h-10"
+          disabled={busy}
+          onClick={() => inputRef.current?.click()}
+        >
+          <Upload className="size-4" />
+          {url ? 'Replace' : 'Upload'}
+        </Button>
+        {url ? (
+          <Button type="button" variant="ghost" className="h-10" disabled={busy} onClick={() => void onRemove()}>
+            Remove
+          </Button>
+        ) : null}
+      </div>
+      <input
+        ref={inputRef}
+        className="hidden"
+        type="file"
+        accept={accept}
+        onChange={(event) => {
+          const next = event.target.files?.[0] ?? null;
+          event.target.value = '';
+          if (!next) return;
+          if (next.size > MAX_UPLOAD_BYTES) {
+            toast.error(`${label} is too large. Maximum allowed is ${MAX_UPLOAD_LABEL}.`);
+            return;
+          }
+          setLocalPreview((current) => {
+            if (current) URL.revokeObjectURL(current);
+            return URL.createObjectURL(next);
+          });
+          setLocalIsPdf(next.type === 'application/pdf');
+          void onUpload(next).catch(() => {
+            setLocalPreview((current) => {
+              if (current) URL.revokeObjectURL(current);
+              return null;
+            });
+            setLocalIsPdf(false);
+          });
+        }}
+      />
+    </div>
+  );
+}
+
 export default function VolunteerDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const [detail, setDetail] = useState<Detail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Record<string, string>>({});
+  const [imageBusy, setImageBusy] = useState<Record<string, boolean>>({});
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   async function load() {
@@ -98,11 +264,7 @@ export default function VolunteerDetailPage() {
     }
     const payload = (await response.json()) as Detail;
     setDetail(payload);
-    const next: Record<string, string> = {};
-    for (const row of FIELD_ROWS) {
-      if (row.editable) next[row.key] = payload[row.key] == null ? '' : String(payload[row.key]);
-    }
-    setDraft(next);
+    setDraft(draftFromDetail(payload));
     setLoading(false);
   }
 
@@ -110,14 +272,55 @@ export default function VolunteerDetailPage() {
     void load();
   }, [params.id]);
 
+  async function patchImage(slotKey: string, payload: FormData) {
+    setImageBusy((current) => ({ ...current, [slotKey]: true }));
+    try {
+      const response = await fetch(`/api/admin/registrations/${params.id}`, {
+        method: 'PATCH',
+        body: payload,
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        if (body?.error === 'PHOTO_TOO_LARGE') throw new Error(`File is too large. Maximum allowed is ${MAX_UPLOAD_LABEL}.`);
+        if (body?.error === 'INVALID_PHOTO') throw new Error('File must be a supported image or PDF.');
+        throw new Error(body?.details || 'Could not update the file.');
+      }
+      await load();
+      toast.success('File updated.');
+    } finally {
+      setImageBusy((current) => ({ ...current, [slotKey]: false }));
+    }
+  }
+
+  async function uploadImage(slotKey: string, file: File) {
+    const form = new FormData();
+    form.append(slotKey, file, file.name);
+    await patchImage(slotKey, form);
+  }
+
+  async function removeImage(slotKey: string) {
+    const form = new FormData();
+    form.append(`clear_${slotKey}`, 'true');
+    await patchImage(slotKey, form);
+  }
+
   async function save() {
+    if (!detail) return;
+    setSaving(true);
+    const form = new FormData();
+    for (const [key, value] of Object.entries(draft)) {
+      if (key === 'created_at') continue;
+      form.append(key, value);
+    }
+
     const response = await fetch(`/api/admin/registrations/${params.id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(draft),
+      body: form,
     });
+    setSaving(false);
     if (!response.ok) {
-      toast.error('Could not save changes.');
+      const payload = await response.json().catch(() => ({}));
+      toast.error(payload?.details || 'Could not save changes.');
       return;
     }
     toast.success('Volunteer updated.');
@@ -149,6 +352,17 @@ export default function VolunteerDetailPage() {
     router.replace(href('/admin/volunteers'));
   }
 
+  function exportVolunteer(format: 'csv' | 'xlsx') {
+    const columns = EXPORT_COLUMNS.map((column) => column.id).join(',');
+    window.location.assign(`/api/admin/registrations/export?id=${params.id}&columns=${columns}&format=${format}`);
+  }
+
+  function cancelEdit() {
+    if (!detail) return;
+    setEditing(false);
+    setDraft(draftFromDetail(detail));
+  }
+
   if (loading) {
     return (
       <div className="grid gap-4">
@@ -172,6 +386,8 @@ export default function VolunteerDetailPage() {
     );
   }
 
+  const cohort = detail.cohortDetail;
+
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -186,10 +402,28 @@ export default function VolunteerDetailPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge status={detail.status} />
-          <Button variant="outline" className="h-11" onClick={() => setEditing((value) => !value)}>
+          <Button variant="outline" className="h-11" onClick={() => exportVolunteer('xlsx')}>
+            <Download className="size-4" />
+            Export Excel
+          </Button>
+          <Button variant="outline" className="h-11" onClick={() => exportVolunteer('csv')}>
+            Export CSV
+          </Button>
+          <Button
+            variant="outline"
+            className="h-11"
+            onClick={() => {
+              if (editing) cancelEdit();
+              else setEditing(true);
+            }}
+          >
             {editing ? 'Cancel edit' : 'Edit'}
           </Button>
-          {editing ? <Button className="h-11" onClick={() => void save()}>Save</Button> : null}
+          {editing ? (
+            <Button className="h-11" disabled={saving} onClick={() => void save()}>
+              {saving ? 'Saving…' : 'Save'}
+            </Button>
+          ) : null}
           <Button variant="secondary" className="h-11" onClick={() => void setStatus('approved')}>Approve</Button>
           <Button variant="outline" className="h-11" onClick={() => void setStatus('review')}>Review</Button>
           <Button variant="outline" className="h-11" onClick={() => void setStatus('flagged')}>Flag</Button>
@@ -197,47 +431,95 @@ export default function VolunteerDetailPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
+      {cohort ? (
         <Card>
           <CardHeader>
-            <CardTitle>Photo</CardTitle>
+            <CardTitle>Cohort detail</CardTitle>
+            <CardDescription>Included when you export this volunteer. Edit the cohort code in the record below if needed.</CardDescription>
           </CardHeader>
-          <CardContent>
-            {detail.photoUrl ? (
-              <img src={detail.photoUrl} alt="Volunteer" className="w-full rounded-lg object-cover" />
-            ) : (
-              <p className="text-sm text-muted-foreground">No photo</p>
-            )}
-            {detail.fanPhotoUrl ? (
-              <div className="mt-4">
-                <Label>National ID</Label>
-                <img src={detail.fanPhotoUrl} alt="National ID" className="mt-2 w-full rounded-lg object-cover" />
+          <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <p className="text-xs text-muted-foreground">Name</p>
+              <p className="font-medium">{cohort.name || '—'}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Code</p>
+              <p className="font-mono text-sm">{cohort.code || '—'}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Status</p>
+              <p className="font-medium">{cohort.status || '—'}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Capacity</p>
+              <p className="font-medium">{cohort.capacity ?? '—'}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Venue</p>
+              <p className="font-medium">{cohort.venue || '—'}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Starts</p>
+              <p className="font-medium">{cohort.startsOn || '—'}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Ends</p>
+              <p className="font-medium">{cohort.endsOn || '—'}</p>
+            </div>
+            <div className="sm:col-span-2 lg:col-span-1">
+              <p className="text-xs text-muted-foreground">Notes</p>
+              <p className="font-medium">{cohort.description || '—'}</p>
+            </div>
+            {cohort.id ? (
+              <div className="sm:col-span-2 lg:col-span-4">
+                <Link href={href(`/admin/cohorts/${cohort.id}`)} className={cn(buttonVariants({ variant: 'outline' }), 'h-11')}>
+                  Open cohort
+                </Link>
               </div>
             ) : null}
-            {detail.secondIdPhotoUrl ? (
-              <div className="mt-4">
-                <Label>Second ID</Label>
-                <img src={detail.secondIdPhotoUrl} alt="Second ID" className="mt-2 w-full rounded-lg object-cover" />
-              </div>
-            ) : null}
-            {detail.bankOwnerIdPhotoUrl ? (
-              <div className="mt-4">
-                <Label>Account owner ID</Label>
-                <img src={detail.bankOwnerIdPhotoUrl} alt="Account owner ID" className="mt-2 w-full rounded-lg object-cover" />
-              </div>
-            ) : null}
-            {detail.ureportUrl ? (
-              <div className="mt-4">
-                <Label>U-Report screenshot</Label>
-                <img src={detail.ureportUrl} alt="U-Report" className="mt-2 w-full rounded-lg object-cover" />
-              </div>
-            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Photos & files</CardTitle>
+            <CardDescription>Upload or replace any file anytime. Changes save immediately. Max {MAX_UPLOAD_LABEL}.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            {IMAGE_SLOTS.map((slot) => (
+              <ImageEditor
+                key={slot.key}
+                label={slot.label}
+                url={detail[slot.urlKey]}
+                accept={slot.accept}
+                hint={slot.requiredHint}
+                busy={Boolean(imageBusy[slot.key])}
+                onUpload={async (file) => {
+                  try {
+                    await uploadImage(slot.key, file);
+                  } catch (error) {
+                    toast.error(error instanceof Error ? error.message : 'Could not update the file.');
+                    throw error;
+                  }
+                }}
+                onRemove={async () => {
+                  try {
+                    await removeImage(slot.key);
+                  } catch (error) {
+                    toast.error(error instanceof Error ? error.message : 'Could not remove the file.');
+                  }
+                }}
+              />
+            ))}
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
             <CardTitle>Volunteer record</CardTitle>
+            <CardDescription>{editing ? 'Every field below is editable.' : 'Open Edit to change text fields. Photos can be updated on the left anytime.'}</CardDescription>
           </CardHeader>
           <CardContent>
             <Table>
@@ -248,28 +530,66 @@ export default function VolunteerDetailPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {FIELD_ROWS.map((row) => (
-                  <TableRow key={row.key}>
-                    <TableCell className="font-medium whitespace-normal">{row.label}</TableCell>
-                    <TableCell className="whitespace-normal">
-                      {editing && row.editable ? (
-                        <Input
-                          className="h-11"
-                          value={draft[row.key] ?? ''}
-                          onChange={(event) => setDraft((current) => ({ ...current, [row.key]: event.target.value }))}
-                        />
-                      ) : (
-                        displayValue(detail[row.key])
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {FIELD_ROWS.map((row) => {
+                  const kind = row.kind ?? 'text';
+                  const editingField = editing && kind !== 'readonly';
+                  return (
+                    <TableRow key={row.key}>
+                      <TableCell className="font-medium whitespace-normal">{row.label}</TableCell>
+                      <TableCell className="whitespace-normal">
+                        {editingField && kind === 'select' ? (
+                          <select
+                            className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
+                            value={draft[row.key] ?? ''}
+                            onChange={(event) => setDraft((current) => ({ ...current, [row.key]: event.target.value }))}
+                          >
+                            {(row.options ?? []).map((option) => (
+                              <option key={option || '__empty'} value={option}>
+                                {option || '—'}
+                              </option>
+                            ))}
+                          </select>
+                        ) : editingField && kind === 'boolean' ? (
+                          <select
+                            className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
+                            value={draft[row.key] ?? 'false'}
+                            onChange={(event) => setDraft((current) => ({ ...current, [row.key]: event.target.value }))}
+                          >
+                            <option value="true">Yes</option>
+                            <option value="false">No</option>
+                          </select>
+                        ) : editingField ? (
+                          <Input
+                            className="h-11"
+                            type={kind === 'number' ? 'number' : 'text'}
+                            value={draft[row.key] ?? ''}
+                            onChange={(event) => setDraft((current) => ({ ...current, [row.key]: event.target.value }))}
+                          />
+                        ) : (
+                          displayValue(detail[row.key])
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
                 <TableRow>
                   <TableCell className="font-medium">Languages</TableCell>
                   <TableCell className="whitespace-normal">
-                    {(detail.registration_languages ?? [])
-                      .map((item) => `${item.language} (${item.proficiency})`)
-                      .join(', ') || '—'}
+                    {editing ? (
+                      <div className="grid gap-1">
+                        <Input
+                          className="h-11"
+                          value={draft.languages ?? ''}
+                          onChange={(event) => setDraft((current) => ({ ...current, languages: event.target.value }))}
+                          placeholder="Amharic (Native), English (Fluent)"
+                        />
+                        <p className="text-xs text-muted-foreground">Comma-separated: Language (Proficiency)</p>
+                      </div>
+                    ) : (
+                      (detail.registration_languages ?? [])
+                        .map((item) => `${item.language} (${item.proficiency})`)
+                        .join(', ') || '—'
+                    )}
                   </TableCell>
                 </TableRow>
               </TableBody>

@@ -32,12 +32,11 @@ function roundRect(context: CanvasRenderingContext2D, x: number, y: number, w: n
 export async function downloadIdAsImage(
   badge: VolunteerBadge,
   photoUrl?: string | null,
-  ureportUrl?: string | null,
   onFallbackError?: (message: string) => void,
 ) {
   try {
     const width = 1200;
-    const height = ureportUrl ? 780 : 680;
+    const height = 680;
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
@@ -102,18 +101,6 @@ export async function downloadIdAsImage(
     lines.forEach((line, index) => {
       context.fillText(line, 310, 360 + index * 32, 820);
     });
-
-    if (ureportUrl) {
-      try {
-        const shot = await loadImage(ureportUrl);
-        context.fillStyle = '#ffffff';
-        context.font = 'bold 18px Arial';
-        context.fillText('U-Report registration', 56, 430);
-        context.drawImage(shot, 56, 448, 1088, 230);
-      } catch {
-        // skip screenshot if it cannot be drawn
-      }
-    }
 
     context.fillStyle = '#F5C518';
     context.font = '18px Arial';

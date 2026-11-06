@@ -40,13 +40,11 @@ function Row({ label, value }: { label: string; value: string }) {
 export function ReviewStep({
   form,
   photoUrl,
-  ureportUrl,
   serverError,
   onEdit,
 }: {
   form: UseFormReturn<RegisterFormValues>;
   photoUrl: string | null;
-  ureportUrl: string | null;
   serverError: string | null;
   isSubmitting: boolean;
   onEdit: (step: number) => void;
@@ -124,9 +122,8 @@ export function ReviewStep({
         <VolunteerIdCard
           badge={badge}
           photoUrl={photoUrl}
-          ureportUrl={ureportUrl}
           onEdit={() => onEdit(1)}
-          onDownload={() => void downloadIdAsImage(badge, photoUrl, ureportUrl)}
+          onDownload={() => void downloadIdAsImage(badge, photoUrl)}
         />
       </div>
     </div>

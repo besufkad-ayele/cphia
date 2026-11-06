@@ -2,44 +2,44 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { dbError, isMissingTable, requireFeature } from '@/app/lib/admin/guard';
 import { hasFeature } from '@/app/lib/admin/permissions';
+import {
+  applyRegistrationFilters,
+  parseSector,
+  parseSubsector,
+  registrationStatusMetrics,
+  sectorBreakdown,
+} from '@/app/lib/admin/registration-filters';
 import { deriveAdminStatus } from '@/app/lib/admin/status';
 import type { RegistrationSummary } from '@/app/lib/admin/types';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
 
 export const runtime = 'nodejs';
 
-async function countRegistrations(status?: string) {
-  const supabase = getSupabaseAdmin();
-  let query = supabase.from('registrations').select('id', { count: 'exact', head: true });
-  if (status) query = query.eq('review_status', status);
-  const { count } = await query;
-  return count ?? 0;
-}
-
 export async function GET(request: NextRequest) {
   const gate = await requireFeature(request, 'dashboard');
   if (!gate.ok) return gate.error;
 
   const today = request.nextUrl.searchParams.get('date') || new Date().toISOString().slice(0, 10);
+  const sector = parseSector(request.nextUrl.searchParams.get('sector'));
+  const subsector = parseSubsector(request.nextUrl.searchParams.get('subsector'));
   const session = gate.session;
+  const filters = { sector, subsector };
 
   try {
     const supabase = getSupabaseAdmin();
-    const [total, pending, approved, review, flagged] = await Promise.all([
-      countRegistrations(),
-      countRegistrations('pending'),
-      countRegistrations('approved'),
-      countRegistrations('review'),
-      countRegistrations('flagged'),
-    ]);
+    const metrics = await registrationStatusMetrics(supabase, filters);
 
     let recent: RegistrationSummary[] = [];
+    let breakdown = { sectors: [] as Array<{ name: string; count: number }>, subsectors: [] as Array<{ name: string; count: number }> };
+
     if (hasFeature(session, 'volunteers')) {
-      const { data } = await supabase
+      let recentQuery = supabase
         .from('registrations')
-        .select('id, registration_id, first_name, last_name, email, sector, residence_region, email_status, device_flag, review_status, created_at, ui_language, phone, secondary_phone, fan_number, bank_name, cohort')
+        .select('id, registration_id, first_name, last_name, email, sector, health_subsectors, residence_region, email_status, device_flag, review_status, created_at, ui_language, phone, secondary_phone, fan_number, bank_name, cohort')
         .order('created_at', { ascending: false })
         .limit(6);
+      recentQuery = applyRegistrationFilters(recentQuery as never, filters) as typeof recentQuery;
+      const { data } = await recentQuery;
       recent = (data ?? []).map((row) => ({
         id: row.id,
         registrationId: row.registration_id,
@@ -49,6 +49,7 @@ export async function GET(request: NextRequest) {
         secondaryPhone: row.secondary_phone ?? '',
         fanNumber: row.fan_number ?? '',
         sector: row.sector,
+        healthSubsectors: row.health_subsectors ?? [],
         residenceRegion: row.residence_region,
         status: deriveAdminStatus(row.review_status, row.email_status, row.device_flag),
         createdAt: row.created_at,
@@ -57,6 +58,11 @@ export async function GET(request: NextRequest) {
         bankName: row.bank_name ?? '',
         cohort: row.cohort ?? 'CPHIA-26',
       }));
+
+      let breakdownQuery = supabase.from('registrations').select('sector, health_subsectors');
+      breakdownQuery = applyRegistrationFilters(breakdownQuery as never, filters) as typeof breakdownQuery;
+      const { data: breakdownRows } = await breakdownQuery;
+      breakdown = sectorBreakdown(breakdownRows ?? []);
     }
 
     let migrationRequired = false;
@@ -103,7 +109,7 @@ export async function GET(request: NextRequest) {
         const marks = Array.isArray(shift.ops_attendance) ? shift.ops_attendance : [];
         const present = marks.filter((mark) => mark.status === 'present' || mark.status === 'late').length;
         const cohortJoin = shift.ops_cohorts;
-        const cohort = Array.isArray(cohortJoin) ? cohortJoin[0]?.code : cohortJoin?.code;
+        const cohortCode = Array.isArray(cohortJoin) ? cohortJoin[0]?.code : cohortJoin?.code;
         checkedInToday += present;
         return {
           id: shift.id,
@@ -113,14 +119,16 @@ export async function GET(request: NextRequest) {
           end: String(shift.end_time).slice(0, 5),
           capacity: shift.capacity,
           present,
-          cohort: cohort || 'Cohort',
+          cohort: cohortCode || 'Cohort',
         };
       });
     }
 
     return NextResponse.json({
-      metrics: { total, pending, approved, review, flagged },
+      metrics,
       recent,
+      breakdown,
+      filters: { sector, subsector },
       cohorts,
       shiftsToday,
       checkedInToday,

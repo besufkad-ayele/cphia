@@ -21,6 +21,9 @@ export function PersonalStep({
   fanPhoto,
   fanPhotoUrl,
   fanPhotoError,
+  fanPhotoBack,
+  fanPhotoBackUrl,
+  fanPhotoBackError,
   secondIdPhoto,
   secondIdPhotoUrl,
   secondIdPhotoError,
@@ -30,6 +33,8 @@ export function PersonalStep({
   onRemovePhoto,
   onUploadFanPhoto,
   onRemoveFanPhoto,
+  onUploadFanPhotoBack,
+  onRemoveFanPhotoBack,
   onUploadSecondIdPhoto,
   onRemoveSecondIdPhoto,
 }: {
@@ -40,6 +45,9 @@ export function PersonalStep({
   fanPhoto: StoredPhoto | null;
   fanPhotoUrl: string | null;
   fanPhotoError: string | null;
+  fanPhotoBack: StoredPhoto | null;
+  fanPhotoBackUrl: string | null;
+  fanPhotoBackError: string | null;
   secondIdPhoto: StoredPhoto | null;
   secondIdPhotoUrl: string | null;
   secondIdPhotoError: string | null;
@@ -49,6 +57,8 @@ export function PersonalStep({
   onRemovePhoto: () => void;
   onUploadFanPhoto: (file: File | null) => void;
   onRemoveFanPhoto: () => void;
+  onUploadFanPhotoBack: (file: File | null) => void;
+  onRemoveFanPhotoBack: () => void;
   onUploadSecondIdPhoto: (file: File | null) => void;
   onRemoveSecondIdPhoto: () => void;
 }) {
@@ -143,6 +153,18 @@ export function PersonalStep({
         error={fanPhotoError ?? undefined}
         onUpload={onUploadFanPhoto}
         onRemove={onRemoveFanPhoto}
+      />
+
+      <ImageField
+        id="fanPhotoBack"
+        label={t('form.fanPhotoBack')}
+        hint={t('form.fanPhotoBackHint')}
+        variant="document"
+        photo={fanPhotoBack}
+        photoUrl={fanPhotoBackUrl}
+        error={fanPhotoBackError ?? undefined}
+        onUpload={onUploadFanPhotoBack}
+        onRemove={onRemoveFanPhotoBack}
       />
 
       <Button type="button" variant="outline" className="h-11 w-fit" onClick={onToggleSecondId}>

@@ -9,6 +9,7 @@ const DRAFT_STORE = 'register';
 const PHOTO_KEY = 'draft-photo';
 const UREPORT_KEY = 'draft-ureport';
 const FAN_PHOTO_KEY = 'draft-fan-photo';
+const FAN_PHOTO_BACK_KEY = 'draft-fan-photo-back';
 const SECOND_ID_PHOTO_KEY = 'draft-second-id-photo';
 const BANK_OWNER_PHOTO_KEY = 'draft-bank-owner-id-photo';
 
@@ -100,6 +101,7 @@ export function useDraft<TFieldValues extends FieldValues>(form: UseFormReturn<T
   const photoStore = useStoredBlob();
   const ureportStore = useStoredBlob();
   const fanPhotoStore = useStoredBlob();
+  const fanPhotoBackStore = useStoredBlob();
   const secondIdPhotoStore = useStoredBlob();
   const bankOwnerPhotoStore = useStoredBlob();
 
@@ -138,6 +140,7 @@ export function useDraft<TFieldValues extends FieldValues>(form: UseFormReturn<T
         await photoStore.hydrate(PHOTO_KEY);
         await ureportStore.hydrate(UREPORT_KEY);
         await fanPhotoStore.hydrate(FAN_PHOTO_KEY);
+        await fanPhotoBackStore.hydrate(FAN_PHOTO_BACK_KEY);
         await secondIdPhotoStore.hydrate(SECOND_ID_PHOTO_KEY);
         await bankOwnerPhotoStore.hydrate(BANK_OWNER_PHOTO_KEY);
       } catch {
@@ -154,6 +157,7 @@ export function useDraft<TFieldValues extends FieldValues>(form: UseFormReturn<T
       photoStore.revoke();
       ureportStore.revoke();
       fanPhotoStore.revoke();
+      fanPhotoBackStore.revoke();
       secondIdPhotoStore.revoke();
       bankOwnerPhotoStore.revoke();
       if (timerRef.current) window.clearTimeout(timerRef.current);
@@ -188,6 +192,9 @@ export function useDraft<TFieldValues extends FieldValues>(form: UseFormReturn<T
     fanPhoto: fanPhotoStore.photo,
     fanPhotoUrl: fanPhotoStore.photoUrl,
     setFanPhoto: (next: StoredPhoto | null) => fanPhotoStore.setDraft(FAN_PHOTO_KEY, next),
+    fanPhotoBack: fanPhotoBackStore.photo,
+    fanPhotoBackUrl: fanPhotoBackStore.photoUrl,
+    setFanPhotoBack: (next: StoredPhoto | null) => fanPhotoBackStore.setDraft(FAN_PHOTO_BACK_KEY, next),
     secondIdPhoto: secondIdPhotoStore.photo,
     secondIdPhotoUrl: secondIdPhotoStore.photoUrl,
     setSecondIdPhoto: (next: StoredPhoto | null) => secondIdPhotoStore.setDraft(SECOND_ID_PHOTO_KEY, next),

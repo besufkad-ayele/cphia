@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { MAX_UPLOAD_LABEL } from '@/app/lib/uploads';
 import { ImageField } from '../components/image-field';
 import { Field, RadioCard, SectorPicker, ToggleChip } from '../components/ui';
 import { healthSubsectorOptions, sectorOptions } from '../constants';
@@ -187,7 +188,7 @@ export function SectorStep({
       </Field>
 
       {values.ureportRegistered ? (
-        <Field id="ureportScreenshot" label={t('form.ureportScreenshot')} hint="JPG, PNG, WEBP, or PDF" error={ureportError ?? undefined}>
+        <Field id="ureportScreenshot" label={t('form.ureportScreenshot')} hint={`JPG, PNG, WEBP, or PDF · max ${MAX_UPLOAD_LABEL}`} error={ureportError ?? undefined}>
           {ureportUrl || ureportPhoto ? (
             <div className="grid gap-2">
               {ureportPhoto?.type === 'application/pdf' || ureportPhoto?.fileName.toLowerCase().endsWith('.pdf') ? (

@@ -1,6 +1,13 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { requireFeature } from '@/app/lib/admin/guard';
+import {
+  applyRegistrationFilters,
+  parseSector,
+  parseSubsector,
+  registrationStatusMetrics,
+  sanitizeSearch,
+} from '@/app/lib/admin/registration-filters';
 import { deriveAdminStatus, isAdminStatus } from '@/app/lib/admin/status';
 import type { RegistrationSummary } from '@/app/lib/admin/types';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
@@ -14,6 +21,7 @@ type RegistrationRow = {
   last_name: string;
   email: string;
   sector: string;
+  health_subsectors: string[] | null;
   residence_region: string;
   email_status: string | null;
   device_flag: string | null;
@@ -37,6 +45,7 @@ function toSummary(row: RegistrationRow): RegistrationSummary {
     secondaryPhone: row.secondary_phone ?? '',
     fanNumber: row.fan_number ?? '',
     sector: row.sector,
+    healthSubsectors: row.health_subsectors ?? [],
     residenceRegion: row.residence_region,
     status: deriveAdminStatus(row.review_status, row.email_status, row.device_flag),
     createdAt: row.created_at,
@@ -45,10 +54,6 @@ function toSummary(row: RegistrationRow): RegistrationSummary {
     bankName: row.bank_name ?? '',
     cohort: row.cohort ?? 'CPHIA-26',
   };
-}
-
-function sanitizeSearch(value: string) {
-  return value.replace(/[,.%()\\]/g, ' ').trim().slice(0, 80);
 }
 
 export async function GET(request: NextRequest) {
@@ -62,39 +67,28 @@ export async function GET(request: NextRequest) {
   const pageSize = Math.min(100, Math.max(10, Number(url.searchParams.get('pageSize') || 25)));
   const status = statusParam && isAdminStatus(statusParam) ? statusParam : null;
   const search = searchParam ? sanitizeSearch(searchParam) : '';
+  const sector = parseSector(url.searchParams.get('sector'));
+  const subsector = parseSubsector(url.searchParams.get('subsector'));
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
+  const filters = { status, search, sector, subsector };
 
   try {
     const supabase = getSupabaseAdmin();
     let query = supabase
       .from('registrations')
       .select(
-        'id, registration_id, first_name, last_name, email, sector, residence_region, email_status, device_flag, review_status, created_at, ui_language, phone, secondary_phone, fan_number, bank_name, cohort',
+        'id, registration_id, first_name, last_name, email, sector, health_subsectors, residence_region, email_status, device_flag, review_status, created_at, ui_language, phone, secondary_phone, fan_number, bank_name, cohort',
         { count: 'exact' },
       )
       .order('created_at', { ascending: false })
       .range(from, to);
 
-    if (status) query = query.eq('review_status', status);
+    query = applyRegistrationFilters(query as never, filters) as typeof query;
 
-    if (search) {
-      query = query.or(
-        [
-          `first_name.ilike.%${search}%`,
-          `last_name.ilike.%${search}%`,
-          `email.ilike.%${search}%`,
-          `phone.ilike.%${search}%`,
-          `secondary_phone.ilike.%${search}%`,
-          `fan_number.ilike.%${search}%`,
-          `registration_id.ilike.%${search}%`,
-        ].join(','),
-      );
-    }
-
-    const [{ data, error, count }, metricsResult] = await Promise.all([
+    const [{ data, error, count }, metrics] = await Promise.all([
       query,
-      supabase.from('registrations').select('review_status'),
+      registrationStatusMetrics(supabase, { search, sector, subsector }),
     ]);
 
     if (error) {
@@ -102,22 +96,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'FETCH_FAILED' }, { status: 500 });
     }
 
-    const metrics = (metricsResult.data ?? []).reduce(
-      (acc, row) => {
-        const value = deriveAdminStatus(row.review_status);
-        acc.total += 1;
-        acc[value] += 1;
-        return acc;
-      },
-      { total: 0, pending: 0, approved: 0, review: 0, flagged: 0 },
-    );
-
     return NextResponse.json({
       registrations: (data ?? []).map((row) => toSummary(row as RegistrationRow)),
       metrics,
       page,
       pageSize,
       total: count ?? 0,
+      filters: { sector, subsector, status, search },
     });
   } catch (error) {
     console.error('admin_registrations_error', error);
