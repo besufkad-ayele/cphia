@@ -5,6 +5,7 @@ export const SECTORS = [
   'MoFA',
   'UNICEF',
   'Transport',
+  'Other',
 ] as const;
 
 export type Sector = (typeof SECTORS)[number];

@@ -226,11 +226,21 @@ export function PhoneInput({
   error?: string;
   onChange: (value: string) => void;
 }) {
-  const local = value.replace('+251', '');
+  const local = value.replace(/^\+?251/, '');
   const formatLocal = (raw: string) => {
-    const digits = raw.replace(/\D/g, '').slice(0, 9);
+    const digits = raw.replace(/\D/g, '').slice(0, 10);
+    if (digits.startsWith('0')) {
+      const chunks = [digits.slice(0, 2), digits.slice(2, 5), digits.slice(5, 10)].filter(Boolean);
+      return chunks.join(' ');
+    }
     const chunks = [digits.slice(0, 2), digits.slice(2, 5), digits.slice(5, 9)].filter(Boolean);
     return chunks.join(' ');
+  };
+
+  const organizeAndSave = (raw: string) => {
+    const digits = raw.replace(/\D/g, '').slice(0, 10);
+    const organized = digits.startsWith('0') ? digits.slice(1, 10) : digits.slice(0, 9);
+    onChange(`+251${organized}`);
   };
 
   return (
@@ -240,14 +250,20 @@ export function PhoneInput({
         id={id}
         value={formatLocal(local)}
         onChange={(event) => {
-          const digits = event.target.value.replace(/\D/g, '').slice(0, 9);
-          onChange(`+251${digits}`);
+          const digits = event.target.value.replace(/\D/g, '').slice(0, 10);
+          // Keep 09… while typing; organize when complete (10 digits) or on blur.
+          if (digits.length === 10 && digits.startsWith('0')) {
+            organizeAndSave(digits);
+            return;
+          }
+          onChange(`+251${digits.slice(0, 10)}`);
         }}
+        onBlur={() => organizeAndSave(local)}
         inputMode="numeric"
         autoComplete="tel-national"
         enterKeyHint="next"
         className="h-9 w-full border-none bg-transparent px-2 text-base text-foreground outline-none"
-        placeholder={placeholder ?? '9X XXX XXXX'}
+        placeholder={placeholder ?? '09XX XXX XXX'}
       />
     </div>
   );

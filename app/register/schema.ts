@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ALL_BANKS, EDUCATION_LEVELS, HEALTH_SUBSECTORS, SECOND_ID_TYPES, SECTORS } from '@cphia/shared/constants';
 import { phoneSchema } from '@cphia/shared/schemas';
+import { organizePhone } from './lib/phone';
 import type { RegisterFormValues } from './types';
 
 const optionalPhoneField = z.union([phoneSchema, z.literal('')]).default('');
@@ -167,10 +168,10 @@ export function toSubmissionPayload(values: RegisterFormValues, idempotencyKey: 
     fanNumber: values.fanNumber.replace(/\s/g, ''),
     secondIdType: values.secondIdType,
     secondIdNumber: values.secondIdNumber,
-    phone: values.phone,
-    secondaryPhone: values.secondaryPhone,
+    phone: organizePhone(values.phone),
+    secondaryPhone: values.secondaryPhone ? organizePhone(values.secondaryPhone) : '',
     phoneIsWhatsApp: Boolean(values.phoneIsWhatsApp),
-    whatsappNumber: values.phoneIsWhatsApp ? '' : values.whatsappNumber,
+    whatsappNumber: values.phoneIsWhatsApp ? '' : values.whatsappNumber ? organizePhone(values.whatsappNumber) : '',
     whatsappNo: values.whatsappNo,
     email: values.email,
     confirmEmail: values.confirmEmail,
@@ -180,7 +181,7 @@ export function toSubmissionPayload(values: RegisterFormValues, idempotencyKey: 
     profession: values.profession,
     educationLevel: values.educationLevel,
     emergencyName: values.emergencyName,
-    emergencyPhone: values.emergencyPhone,
+    emergencyPhone: organizePhone(values.emergencyPhone),
     emergencyRelationship: values.emergencyRelationship,
     languages: values.languages,
     sector: values.sector,
