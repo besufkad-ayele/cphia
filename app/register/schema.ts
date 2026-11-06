@@ -140,7 +140,7 @@ export const reviewStepSchema = z.object({
   sector: sectorEnum,
   healthSubsectors: z.array(healthEnum).max(1).default([]),
   bankName: bankEnum,
-  bankAccountName: z.string().min(1, 'Account name is required').max(120),
+  bankAccountName: z.string().min(1, 'Account owner name is required').max(120),
   bankAccountNumber: z.string().trim().min(5, 'Account number is required').max(30),
   bankAccountOtherOwner: z.boolean().default(false),
   ureportRegistered: z.boolean({ required_error: 'Tell us if you registered on U-Report' }),

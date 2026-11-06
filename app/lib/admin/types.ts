@@ -52,7 +52,7 @@ export const EXPORT_COLUMNS = [
   { id: 'sector', label: 'Sector' },
   { id: 'health_subsectors', label: 'Health sub-sector' },
   { id: 'bank_name', label: 'Bank' },
-  { id: 'bank_account_name', label: 'Account name' },
+  { id: 'bank_account_name', label: 'Account owner name' },
   { id: 'bank_account_number', label: 'Account number' },
   { id: 'bank_account_other_owner', label: 'Account owned by someone else' },
   { id: 'ureport_registered', label: 'U-Report registered' },

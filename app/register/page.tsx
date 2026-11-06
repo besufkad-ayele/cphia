@@ -249,25 +249,37 @@ function RegisterScreen() {
   };
 
   const submit = async () => {
-    setIsSubmitting(true);
+    if (isSubmitting) return;
     setServerError(null);
 
+    if (!photo) {
+      setShowConfirm(false);
+      setPhotoError('A professional personal photo is required for the event ID.');
+      setStep(1);
+      return;
+    }
+    if (!fanPhoto) {
+      setShowConfirm(false);
+      setFanPhotoError('A photo of your national ID is required.');
+      setStep(1);
+      return;
+    }
+    if (form.getValues('bankAccountOtherOwner') && !bankOwnerPhoto) {
+      setShowConfirm(false);
+      setBankOwnerPhotoError('Upload a photo of the account owner’s ID.');
+      setStep(3);
+      return;
+    }
+    if (form.getValues('ureportRegistered') && !ureportPhoto) {
+      setShowConfirm(false);
+      setUreportError('Upload your U-Report registration screenshot.');
+      setStep(3);
+      return;
+    }
+
+    setIsSubmitting(true);
+
     try {
-      if (!photo) {
-        setPhotoError('A professional personal photo is required for the event ID.');
-        setIsSubmitting(false);
-        return;
-      }
-      if (!fanPhoto) {
-        setFanPhotoError('A photo of your national ID is required.');
-        setIsSubmitting(false);
-        return;
-      }
-      if (form.getValues('bankAccountOtherOwner') && !bankOwnerPhoto) {
-        setBankOwnerPhotoError('Upload a photo of the account owner’s ID.');
-        setIsSubmitting(false);
-        return;
-      }
       const idempotencyKey = localStorage.getItem(SESSION_KEY) ?? crypto.randomUUID();
       localStorage.setItem(SESSION_KEY, idempotencyKey);
       const submission = toSubmissionPayload(form.getValues(), idempotencyKey);
@@ -313,8 +325,12 @@ function RegisterScreen() {
       setSubmittedEmailSent(emailSent);
       setSubmittedId(result.registrationId as string);
       setShowConfirm(false);
+      window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
     } catch (error) {
+      setShowConfirm(false);
       setServerError(error instanceof Error ? error.message : t('serverBusy'));
+      setStep(4);
+      window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
     } finally {
       setIsSubmitting(false);
     }
@@ -462,12 +478,19 @@ function RegisterScreen() {
 
         <ConfirmDialog
           open={showConfirm}
-          title={t('confirmSubmit')}
-          onCancel={() => setShowConfirm(false)}
+          title={t('confirmSubmitTitle')}
+          description={t('confirmSubmit')}
+          checklist={t('confirmSubmitChecklist')}
+          confirmLabel={t('confirmFinal')}
+          cancelLabel={t('cancel')}
+          busy={isSubmitting}
+          onCancel={() => {
+            if (!isSubmitting) setShowConfirm(false);
+          }}
           onConfirm={() => void submit()}
         />
 
-        <SubmitOverlay open={isSubmitting} />
+        <SubmitOverlay open={isSubmitting} label={t('submitting')} />
       </RegisterIntlProvider>
     </AppShell>
   );

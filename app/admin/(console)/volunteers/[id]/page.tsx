@@ -64,7 +64,7 @@ const FIELD_ROWS: Array<{ key: string; label: string; editable?: boolean }> = [
   { key: 'sector', label: 'Sector', editable: true },
   { key: 'health_subsectors', label: 'Health sub-sector' },
   { key: 'bank_name', label: 'Bank', editable: true },
-  { key: 'bank_account_name', label: 'Account name', editable: true },
+  { key: 'bank_account_name', label: 'Account owner name', editable: true },
   { key: 'bank_account_number', label: 'Account number', editable: true },
   { key: 'bank_account_other_owner', label: 'Account owned by someone else' },
   { key: 'ureport_registered', label: 'U-Report registered' },

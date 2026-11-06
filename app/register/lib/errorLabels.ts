@@ -31,7 +31,7 @@ export const FIELD_LABEL_MAP: Record<string, string> = {
   sector: 'Sector',
   healthSubsectors: 'Health sub-sector',
   bankName: 'Bank',
-  bankAccountName: 'Account name',
+  bankAccountName: 'Account owner name',
   bankAccountNumber: 'Account number',
   bankAccountOtherOwner: 'Someone else owns this account',
   ureportRegistered: 'U-Report registration',

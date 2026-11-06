@@ -533,16 +533,18 @@ export function ReviewSection({
   title,
   children,
   onEdit,
+  editLabel = 'Edit',
 }: {
   title: string;
   children: ReactNode;
   onEdit: () => void;
+  editLabel?: string;
 }) {
   return (
-    <div className="rounded-lg border bg-background p-3">
+    <div className="rounded-xl border border-border/80 bg-background/90 p-3 shadow-sm backdrop-blur-sm">
       <div className="mb-2 flex items-center justify-between gap-3">
         <h3 className="m-0 text-base font-semibold">{title}</h3>
-        <Button type="button" variant="outline" className="h-9" onClick={onEdit}>Edit</Button>
+        <Button type="button" variant="outline" className="h-9" onClick={onEdit}>{editLabel}</Button>
       </div>
       <div className="grid gap-1 text-sm">{children}</div>
     </div>
@@ -563,37 +565,57 @@ export function GoldButton({ children, className = '', ...props }: React.ButtonH
 export function ConfirmDialog({
   open,
   title,
+  description,
+  checklist,
+  confirmLabel,
+  cancelLabel,
+  busy,
   onCancel,
   onConfirm,
 }: {
   open: boolean;
   title: string;
+  description: string;
+  checklist?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  busy?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
   return (
-    <Dialog open={open} onOpenChange={(next) => { if (!next) onCancel(); }}>
-      <DialogContent>
+    <Dialog open={open} onOpenChange={(next) => { if (!next && !busy) onCancel(); }}>
+      <DialogContent className="sm:max-w-md" showCloseButton={!busy}>
         <DialogHeader>
-          <DialogTitle>Submit registration</DialogTitle>
-          <DialogDescription>{title}</DialogDescription>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
+        {checklist ? (
+          <p className="rounded-lg border border-accent/40 bg-accent/15 px-3 py-2 text-sm text-foreground">
+            {checklist}
+          </p>
+        ) : null}
         <DialogFooter>
-          <Button type="button" variant="outline" className="h-11" onClick={onCancel}>Cancel</Button>
-          <Button type="button" className="h-11" onClick={onConfirm}>Confirm</Button>
+          <Button type="button" variant="outline" className="h-11" onClick={onCancel} disabled={busy}>
+            {cancelLabel ?? 'Cancel'}
+          </Button>
+          <Button type="button" className="h-11" onClick={onConfirm} disabled={busy}>
+            {busy ? 'Submitting…' : (confirmLabel ?? 'Confirm')}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
 
-export function SubmitOverlay({ open }: { open: boolean }) {
+export function SubmitOverlay({ open, label }: { open: boolean; label?: string }) {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" aria-live="polite">
-      <Card className="w-full max-w-md p-5 text-center">
-        <div className="mx-auto mb-3 h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-        <p className="m-0 text-sm font-semibold">Submitting, please do not close this page</p>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4 backdrop-blur-[2px]" aria-live="polite">
+      <Card className="w-full max-w-md p-6 text-center shadow-xl">
+        <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        <p className="m-0 text-base font-semibold">{label ?? 'Submitting, please do not close this page'}</p>
+        <p className="mt-2 text-sm text-muted-foreground">This usually takes a few seconds.</p>
       </Card>
     </div>
   );
