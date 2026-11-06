@@ -3,6 +3,7 @@ import type { NextRequest } from 'next/server';
 import ExcelJS from 'exceljs';
 import { requireFeature } from '@/app/lib/admin/guard';
 import {
+  applyNameSort,
   applyRegistrationFilters,
   parseSector,
   parseSubsector,
@@ -49,10 +50,11 @@ export async function GET(request: NextRequest) {
   const id = request.nextUrl.searchParams.get('id');
 
   const supabase = getSupabaseAdmin();
-  let query = supabase.from('registrations').select('*').order('created_at', { ascending: false });
+  let query = supabase.from('registrations').select('*');
   if (id) {
     query = query.eq('id', id);
   } else {
+    query = applyNameSort(query as never) as typeof query;
     query = applyRegistrationFilters(query as never, { status, search, sector, subsector }) as typeof query;
   }
 

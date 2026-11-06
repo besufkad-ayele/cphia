@@ -20,6 +20,7 @@ export async function GET(request: NextRequest) {
 
   const shiftId = request.nextUrl.searchParams.get('shiftId') || '';
   const search = sanitizeSearch(request.nextUrl.searchParams.get('q') || '');
+  const mode = request.nextUrl.searchParams.get('mode');
   try {
     const supabase = getSupabaseAdmin();
     let shifts: unknown[] = [];
@@ -37,20 +38,46 @@ export async function GET(request: NextRequest) {
     if (canAttendance && shiftId) {
       const attendance = await supabase
         .from('ops_attendance')
-        .select('id, status, notes, checked_in_at, registration_id, registrations(id, registration_id, first_name, last_name, sector, email)')
+        .select('id, status, notes, checked_in_at, registration_id, registrations(id, registration_id, first_name, middle_name, last_name, sector, email, review_status)')
         .eq('shift_id', shiftId)
         .order('updated_at', { ascending: false });
       if (attendance.error) return dbError(attendance.error);
-      rows = attendance.data ?? [];
+      rows = (attendance.data ?? []).filter((row) => {
+        const person = Array.isArray(row.registrations) ? row.registrations[0] : row.registrations;
+        return person?.review_status === 'approved';
+      });
     }
 
     let matches: unknown[] = [];
-    if (search) {
-      const people = await supabase
+    if (search || mode === 'approved') {
+      let peopleQuery = supabase
         .from('registrations')
-        .select('id, registration_id, first_name, last_name, sector, email')
-        .or([`first_name.ilike.%${search}%`, `last_name.ilike.%${search}%`, `email.ilike.%${search}%`, `registration_id.ilike.%${search}%`].join(','))
-        .limit(8);
+        .select('id, registration_id, first_name, middle_name, last_name, sector, email')
+        .eq('review_status', 'approved')
+        .order('first_name', { ascending: true })
+        .order('middle_name', { ascending: true })
+        .order('last_name', { ascending: true });
+
+      if (search) {
+        const tokens = search.split(/\s+/).filter(Boolean);
+        const clauses = [
+          `first_name.ilike.%${search}%`,
+          `middle_name.ilike.%${search}%`,
+          `last_name.ilike.%${search}%`,
+          `email.ilike.%${search}%`,
+          `registration_id.ilike.%${search}%`,
+          ...tokens.flatMap((token) => [
+            `first_name.ilike.%${token}%`,
+            `middle_name.ilike.%${token}%`,
+            `last_name.ilike.%${token}%`,
+          ]),
+        ];
+        peopleQuery = peopleQuery.or([...new Set(clauses)].join(',')).limit(12);
+      } else {
+        peopleQuery = peopleQuery.limit(500);
+      }
+
+      const people = await peopleQuery;
       if (people.error) return NextResponse.json({ error: 'FETCH_FAILED' }, { status: 500 });
       matches = people.data ?? [];
     }
@@ -75,6 +102,17 @@ export async function POST(request: NextRequest) {
 
   try {
     const supabase = getSupabaseAdmin();
+    const { data: volunteer, error: volunteerError } = await supabase
+      .from('registrations')
+      .select('id, review_status')
+      .eq('id', registrationId)
+      .maybeSingle();
+    if (volunteerError) return dbError(volunteerError);
+    if (!volunteer) return NextResponse.json({ error: 'NOT_FOUND' }, { status: 404 });
+    if (volunteer.review_status !== 'approved') {
+      return NextResponse.json({ error: 'NOT_APPROVED', message: 'Only approved volunteers can be marked on attendance.' }, { status: 400 });
+    }
+
     const { error } = await supabase.from('ops_attendance').upsert(
       {
         shift_id: shiftId,

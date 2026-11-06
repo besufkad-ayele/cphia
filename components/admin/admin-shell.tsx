@@ -117,8 +117,13 @@ export function AdminShell({
   }
 
   return (
-    <div className={cn('admin-dark min-h-screen text-foreground md:grid', expanded ? 'md:grid-cols-[280px_1fr]' : 'md:grid-cols-[92px_1fr]')}>
-      <aside className="sticky top-0 hidden h-screen flex-col border-r border-white/10 bg-black/45 backdrop-blur-2xl md:flex">
+    <div className="admin-dark min-h-screen text-foreground">
+      <aside
+        className={cn(
+          'fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-white/10 bg-black/45 backdrop-blur-2xl md:flex',
+          expanded ? 'w-[280px]' : 'w-[92px]',
+        )}
+      >
         <div className={cn('flex items-center border-b border-white/10', expanded ? 'justify-between px-4 py-4' : 'justify-center px-3 py-4')}>
           {expanded ? (
             <div>
@@ -158,7 +163,7 @@ export function AdminShell({
         </div>
       </aside>
 
-      <div className="flex min-h-screen flex-col">
+      <div className={cn('flex min-h-screen flex-col', expanded ? 'md:pl-[280px]' : 'md:pl-[92px]')}>
         <header className="sticky top-0 z-20 flex items-center justify-between border-b border-white/10 bg-black/55 px-4 py-3 backdrop-blur-xl md:hidden">
           <button type="button" className="inline-flex items-center gap-2 text-sm font-medium text-white" onClick={() => setMenuOpen(true)}>
             <Menu className="size-4" />

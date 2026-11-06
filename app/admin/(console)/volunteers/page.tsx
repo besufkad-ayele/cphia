@@ -3,11 +3,12 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Download, Search } from 'lucide-react';
+import { Download, Plus, Search } from 'lucide-react';
 import { HEALTH_SUBSECTORS, SECTORS } from '@cphia/shared/constants';
 import { toast } from 'sonner';
 import type { AdminStatus } from '@/app/lib/admin/status';
 import { ADMIN_STATUSES } from '@/app/lib/admin/status';
+import { matchesVolunteerSearch } from '@/app/lib/admin/registration-filters';
 import type { RegistrationMetrics, RegistrationSummary } from '@/app/lib/admin/types';
 import { EXPORT_COLUMNS } from '@/app/lib/admin/types';
 import { StatusBadge } from '@/components/admin/status-badge';
@@ -39,12 +40,19 @@ import {
 const emptyMetrics: RegistrationMetrics = { total: 0, pending: 0, approved: 0, review: 0, flagged: 0 };
 const PAGE_SIZE = 25;
 
+type IndexCache = {
+  key: string;
+  items: RegistrationSummary[];
+  metrics: RegistrationMetrics;
+  total: number;
+};
+
 function VolunteersTable() {
   const searchParams = useSearchParams();
   const initialStatus = searchParams.get('status');
   const initialSector = searchParams.get('sector') ?? '';
   const initialSubsector = searchParams.get('subsector') ?? '';
-  const [rows, setRows] = useState<RegistrationSummary[]>([]);
+  const [index, setIndex] = useState<RegistrationSummary[]>([]);
   const [metrics, setMetrics] = useState<RegistrationMetrics>(emptyMetrics);
   const [status, setStatus] = useState<'all' | AdminStatus>(
     ADMIN_STATUSES.includes(initialStatus as AdminStatus) ? (initialStatus as AdminStatus) : 'all',
@@ -56,47 +64,62 @@ function VolunteersTable() {
     (HEALTH_SUBSECTORS as readonly string[]).includes(initialSubsector) ? initialSubsector : '',
   );
   const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [exportOpen, setExportOpen] = useState(false);
   const [selectedColumns, setSelectedColumns] = useState<string[]>(EXPORT_COLUMNS.map((column) => column.id));
   const [deleteId, setDeleteId] = useState<string | null>(null);
-  const timer = useRef<number | null>(null);
+  const cacheRef = useRef<IndexCache | null>(null);
 
-  useEffect(() => {
-    if (timer.current) window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => {
-      setDebouncedSearch(search.trim());
-      setPage(1);
-    }, 300);
-    return () => {
-      if (timer.current) window.clearTimeout(timer.current);
-    };
-  }, [search]);
+  const filterKey = useMemo(
+    () => JSON.stringify({ status, sector, subsector }),
+    [status, sector, subsector],
+  );
 
-  const load = useCallback(async () => {
+  const loadIndex = useCallback(async () => {
+    if (cacheRef.current?.key === filterKey) {
+      setIndex(cacheRef.current.items);
+      setMetrics(cacheRef.current.metrics);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
-    const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
+    const params = new URLSearchParams({ mode: 'index', pageSize: '3000' });
     if (status !== 'all') params.set('status', status);
-    if (debouncedSearch) params.set('search', debouncedSearch);
     if (sector) params.set('sector', sector);
     if (subsector) params.set('subsector', subsector);
     const response = await fetch(`/api/admin/registrations?${params}`);
     const payload = await response.json();
-    setRows(payload.registrations ?? []);
-    setMetrics(payload.metrics ?? emptyMetrics);
-    setTotal(payload.total ?? 0);
+    const items = (payload.registrations ?? []) as RegistrationSummary[];
+    const nextMetrics = payload.metrics ?? emptyMetrics;
+    cacheRef.current = {
+      key: filterKey,
+      items,
+      metrics: nextMetrics,
+      total: payload.total ?? items.length,
+    };
+    setIndex(items);
+    setMetrics(nextMetrics);
     setLoading(false);
-  }, [page, status, debouncedSearch, sector, subsector]);
+  }, [filterKey, status, sector, subsector]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadIndex();
+  }, [loadIndex]);
 
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const showHealthSubs = !sector || sector === 'Health';
+  useEffect(() => {
+    setPage(1);
+  }, [search, status, sector, subsector]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim();
+    if (!q) return index;
+    return index.filter((row) => matchesVolunteerSearch(row, q));
+  }, [index, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const rows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const showHealthSubs = sector === 'Health';
 
   async function setReviewStatus(id: string, action: AdminStatus) {
     const response = await fetch(`/api/admin/registrations/${id}`, {
@@ -109,7 +132,8 @@ function VolunteersTable() {
       return;
     }
     toast.success('Status updated.');
-    void load();
+    cacheRef.current = null;
+    void loadIndex();
   }
 
   async function removeVolunteer() {
@@ -121,13 +145,14 @@ function VolunteersTable() {
       return;
     }
     toast.success('Volunteer deleted.');
-    void load();
+    cacheRef.current = null;
+    void loadIndex();
   }
 
   function exportFile(format: 'csv' | 'xlsx') {
     const params = new URLSearchParams({ columns: selectedColumns.join(','), format });
     if (status !== 'all') params.set('status', status);
-    if (debouncedSearch) params.set('search', debouncedSearch);
+    if (search.trim()) params.set('search', search.trim());
     if (sector) params.set('sector', sector);
     if (subsector) params.set('subsector', subsector);
     window.location.assign(`/api/admin/registrations/export?${params}`);
@@ -150,12 +175,20 @@ function VolunteersTable() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Volunteers</h1>
-          <p className="text-sm text-muted-foreground">Search, filter by sector, review, update, export, and manage the CPHIA-26 cohort.</p>
+          <p className="text-sm text-muted-foreground">
+            Sorted by name · father · grandfather. Search runs instantly on the loaded list.
+          </p>
         </div>
-        <Button className="h-11" onClick={() => setExportOpen(true)}>
-          <Download className="size-4" />
-          Export
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Link href={href('/admin/volunteers/new')} className={cn(buttonVariants(), 'h-11')}>
+            <Plus className="size-4" />
+            Register volunteer
+          </Link>
+          <Button className="h-11" variant="outline" onClick={() => setExportOpen(true)}>
+            <Download className="size-4" />
+            Export
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -167,11 +200,11 @@ function VolunteersTable() {
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search name, FAN, phone, email, or ID"
+                placeholder="Search name, father name, grandfather name, FAN, phone, email, or ID"
                 className="h-11 pl-9"
               />
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className={`grid gap-3 ${showHealthSubs ? 'sm:grid-cols-2' : ''}`}>
               <label className="grid gap-1.5 text-sm">
                 <span className="text-muted-foreground">Sector</span>
                 <select
@@ -180,8 +213,8 @@ function VolunteersTable() {
                   onChange={(event) => {
                     const next = event.target.value;
                     setSector(next);
-                    if (next && next !== 'Health') setSubsector('');
-                    setPage(1);
+                    if (next !== 'Health') setSubsector('');
+                    cacheRef.current = null;
                   }}
                 >
                   <option value="">All sectors</option>
@@ -190,23 +223,24 @@ function VolunteersTable() {
                   ))}
                 </select>
               </label>
-              <label className="grid gap-1.5 text-sm">
-                <span className="text-muted-foreground">Health sub-sector</span>
-                <select
-                  className="h-11 rounded-md border border-input bg-background px-3 text-sm disabled:opacity-50"
-                  value={subsector}
-                  disabled={!showHealthSubs}
-                  onChange={(event) => {
-                    setSubsector(event.target.value);
-                    setPage(1);
-                  }}
-                >
-                  <option value="">All sub-sectors</option>
-                  {HEALTH_SUBSECTORS.map((option) => (
-                    <option key={option} value={option}>{option}</option>
-                  ))}
-                </select>
-              </label>
+              {showHealthSubs ? (
+                <label className="grid gap-1.5 text-sm">
+                  <span className="text-muted-foreground">Health sub-sector</span>
+                  <select
+                    className="h-11 rounded-md border border-input bg-background px-3 text-sm"
+                    value={subsector}
+                    onChange={(event) => {
+                      setSubsector(event.target.value);
+                      cacheRef.current = null;
+                    }}
+                  >
+                    <option value="">All sub-sectors</option>
+                    {HEALTH_SUBSECTORS.map((option) => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
             </div>
             <div className="flex flex-wrap gap-2">
               {filters.map((filter) => (
@@ -216,7 +250,7 @@ function VolunteersTable() {
                   className="h-11"
                   onClick={() => {
                     setStatus(filter.id);
-                    setPage(1);
+                    cacheRef.current = null;
                   }}
                 >
                   {filter.label}
@@ -251,6 +285,11 @@ function VolunteersTable() {
                     <TableRow key={row.id}>
                       <TableCell>
                         <Link href={href(`/admin/volunteers/${row.id}`)} className="font-medium hover:underline">{row.name}</Link>
+                        <p className="text-xs text-muted-foreground">
+                          {[row.firstName && `Name: ${row.firstName}`, row.middleName && `Father: ${row.middleName}`, row.lastName && `Grandfather: ${row.lastName}`]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </p>
                         <p className="text-xs text-muted-foreground">{row.cohort}</p>
                       </TableCell>
                       <TableCell className="font-mono text-xs">{row.registrationId}</TableCell>
@@ -283,7 +322,10 @@ function VolunteersTable() {
             <p className="py-8 text-center text-sm text-muted-foreground">No volunteers match this search.</p>
           ) : null}
           <div className="mt-4 flex items-center justify-between gap-3">
-            <p className="text-sm text-muted-foreground">Page {page} of {pageCount} · {total} volunteers</p>
+            <p className="text-sm text-muted-foreground">
+              Page {page} of {pageCount} · {filtered.length} shown
+              {search.trim() ? ` (filtered from ${index.length})` : ''}
+            </p>
             <div className="flex gap-2">
               <Button variant="outline" className="h-11" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Previous</Button>
               <Button variant="outline" className="h-11" disabled={page >= pageCount} onClick={() => setPage((value) => value + 1)}>Next</Button>
@@ -296,7 +338,7 @@ function VolunteersTable() {
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Export volunteers</DialogTitle>
-            <DialogDescription>Choose columns, then download Excel or CSV. Current search, status, sector, and sub-sector filters apply. Cohort is included by default.</DialogDescription>
+            <DialogDescription>Choose columns, then download Excel or CSV. Current search, status, sector, and sub-sector filters apply.</DialogDescription>
           </DialogHeader>
           <div className="grid max-h-72 gap-2 overflow-y-auto">
             {EXPORT_COLUMNS.map((column) => (

@@ -4,9 +4,11 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { CalendarCheck, CalendarRange, ClipboardList, Clock3, Users } from 'lucide-react';
 import { HEALTH_SUBSECTORS, SECTORS } from '@cphia/shared/constants';
+import type { DemographicsSummary } from '@/app/lib/admin/demographics';
 import type { RegistrationMetrics, RegistrationSummary } from '@/app/lib/admin/types';
 import { adminFetch } from '@/app/lib/admin/messages';
 import { hasFeature } from '@/app/lib/admin/permissions';
+import { DashboardDemographics } from '@/components/admin/dashboard-charts';
 import { StatusBadge } from '@/components/admin/status-badge';
 import { Banner, PageHeader, controlClass } from '@/components/admin/console';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -32,6 +34,7 @@ type Overview = {
   metrics: RegistrationMetrics;
   recent: RegistrationSummary[];
   breakdown: { sectors: BreakdownRow[]; subsectors: BreakdownRow[] };
+  demographics: DemographicsSummary;
   filters: { sector: string | null; subsector: string | null };
   cohorts: number;
   shiftsToday: number;
@@ -81,7 +84,7 @@ export default function AdminDashboardPage() {
     { label: 'Shifts', value: data?.shiftsToday ?? 0, note: 'Roster blocks scheduled today', href: href('/admin/shifts'), icon: Clock3, feature: 'shifts' as const },
   ].filter((card) => !data || hasFeature(session, card.feature));
 
-  const showHealthSubs = !sector || sector === 'Health';
+  const showHealthSubs = sector === 'Health';
   const filterNote = [sector || null, subsector || null].filter(Boolean).join(' · ') || 'All sectors';
 
   return (
@@ -89,9 +92,9 @@ export default function AdminDashboardPage() {
       <PageHeader
         kicker="CPHIA-26 COHORT"
         title="Desk at a glance"
-        description="Filter by sector and health sub-sector to see counts, recent registrations, and jump into the matching volunteer list."
+        description="Filter by sector and health sub-sector to see counts, gender, age, education charts, and jump into the matching volunteer list."
       >
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className={`grid gap-2 ${showHealthSubs ? 'sm:grid-cols-2' : ''}`}>
           <label className="grid gap-1 text-xs text-zinc-400">
             Sector
             <select
@@ -100,7 +103,7 @@ export default function AdminDashboardPage() {
               onChange={(event) => {
                 const next = event.target.value;
                 setSector(next);
-                if (next && next !== 'Health') setSubsector('');
+                if (next !== 'Health') setSubsector('');
               }}
             >
               <option value="">All sectors</option>
@@ -109,20 +112,21 @@ export default function AdminDashboardPage() {
               ))}
             </select>
           </label>
-          <label className="grid gap-1 text-xs text-zinc-400">
-            Health sub-sector
-            <select
-              className={controlClass}
-              value={subsector}
-              disabled={!showHealthSubs}
-              onChange={(event) => setSubsector(event.target.value)}
-            >
-              <option value="">All sub-sectors</option>
-              {HEALTH_SUBSECTORS.map((option) => (
-                <option key={option} value={option}>{option}</option>
-              ))}
-            </select>
-          </label>
+          {showHealthSubs ? (
+            <label className="grid gap-1 text-xs text-zinc-400">
+              Health sub-sector
+              <select
+                className={controlClass}
+                value={subsector}
+                onChange={(event) => setSubsector(event.target.value)}
+              >
+                <option value="">All sub-sectors</option>
+                {HEALTH_SUBSECTORS.map((option) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </select>
+            </label>
+          ) : null}
         </div>
       </PageHeader>
       <Banner message={error || (data?.migrationRequired ? 'Apply supabase/migrations/009_ops_modules.sql to turn on attendance, shifts, cohorts, forms, and roles.' : null)} />
@@ -148,6 +152,12 @@ export default function AdminDashboardPage() {
               );
             })}
       </div>
+
+      <DashboardDemographics
+        data={data?.demographics ?? null}
+        loading={loading}
+        total={metrics.total}
+      />
 
       <div className="grid gap-4 xl:grid-cols-[1fr_1fr_1fr]">
         <Card>

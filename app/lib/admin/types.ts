@@ -3,6 +3,9 @@ import type { AdminStatus } from './status';
 export type RegistrationSummary = {
   id: string;
   registrationId: string;
+  firstName: string;
+  middleName: string;
+  lastName: string;
   name: string;
   email: string;
   phone: string;
@@ -19,6 +22,21 @@ export type RegistrationSummary = {
   cohort: string;
 };
 
+/** Display Ethiopian-style: given name · father · grandfather */
+export function formatVolunteerName(row: {
+  firstName?: string | null;
+  middleName?: string | null;
+  lastName?: string | null;
+  first_name?: string | null;
+  middle_name?: string | null;
+  last_name?: string | null;
+}) {
+  const first = (row.firstName ?? row.first_name ?? '').trim();
+  const middle = (row.middleName ?? row.middle_name ?? '').trim();
+  const last = (row.lastName ?? row.last_name ?? '').trim();
+  return [first, middle, last].filter(Boolean).join(' ');
+}
+
 export type RegistrationMetrics = {
   total: number;
   pending: number;
@@ -27,11 +45,19 @@ export type RegistrationMetrics = {
   flagged: number;
 };
 
+export type {
+  AgeBucketRow,
+  DemographicsSummary,
+  EducationRow,
+  GenderBySectorRow,
+  GenderCount,
+} from './demographics';
+
 export const EXPORT_COLUMNS = [
   { id: 'registration_id', label: 'Registration ID' },
-  { id: 'first_name', label: 'First name' },
-  { id: 'middle_name', label: 'Middle name' },
-  { id: 'last_name', label: 'Last name' },
+  { id: 'first_name', label: 'Given name' },
+  { id: 'middle_name', label: 'Father name' },
+  { id: 'last_name', label: 'Grandfather name' },
   { id: 'full_name_amharic', label: 'Full name (Amharic)' },
   { id: 'sex', label: 'Sex' },
   { id: 'age', label: 'Age' },

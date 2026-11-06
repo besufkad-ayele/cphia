@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { dbError, isMissingTable, requireFeature } from '@/app/lib/admin/guard';
 import { hasFeature } from '@/app/lib/admin/permissions';
+import { buildDemographics, type DemographicsSummary } from '@/app/lib/admin/demographics';
 import {
   applyRegistrationFilters,
   parseSector,
@@ -31,38 +32,50 @@ export async function GET(request: NextRequest) {
 
     let recent: RegistrationSummary[] = [];
     let breakdown = { sectors: [] as Array<{ name: string; count: number }>, subsectors: [] as Array<{ name: string; count: number }> };
+    let demographics: DemographicsSummary = buildDemographics([]);
 
     if (hasFeature(session, 'volunteers')) {
       let recentQuery = supabase
         .from('registrations')
-        .select('id, registration_id, first_name, last_name, email, sector, health_subsectors, residence_region, email_status, device_flag, review_status, created_at, ui_language, phone, secondary_phone, fan_number, bank_name, cohort')
+        .select('id, registration_id, first_name, middle_name, last_name, email, sector, health_subsectors, residence_region, email_status, device_flag, review_status, created_at, ui_language, phone, secondary_phone, fan_number, bank_name, cohort')
         .order('created_at', { ascending: false })
         .limit(6);
       recentQuery = applyRegistrationFilters(recentQuery as never, filters) as typeof recentQuery;
       const { data } = await recentQuery;
-      recent = (data ?? []).map((row) => ({
-        id: row.id,
-        registrationId: row.registration_id,
-        name: `${row.first_name} ${row.last_name}`.trim(),
-        email: row.email,
-        phone: row.phone ?? '',
-        secondaryPhone: row.secondary_phone ?? '',
-        fanNumber: row.fan_number ?? '',
-        sector: row.sector,
-        healthSubsectors: row.health_subsectors ?? [],
-        residenceRegion: row.residence_region,
-        status: deriveAdminStatus(row.review_status, row.email_status, row.device_flag),
-        createdAt: row.created_at,
-        uiLanguage: row.ui_language ?? 'en',
-        deviceFlag: row.device_flag,
-        bankName: row.bank_name ?? '',
-        cohort: row.cohort ?? 'CPHIA-26',
-      }));
+      recent = (data ?? []).map((row) => {
+        const firstName = row.first_name ?? '';
+        const middleName = row.middle_name ?? '';
+        const lastName = row.last_name ?? '';
+        return {
+          id: row.id,
+          registrationId: row.registration_id,
+          firstName,
+          middleName,
+          lastName,
+          name: [firstName, middleName, lastName].filter(Boolean).join(' '),
+          email: row.email,
+          phone: row.phone ?? '',
+          secondaryPhone: row.secondary_phone ?? '',
+          fanNumber: row.fan_number ?? '',
+          sector: row.sector,
+          healthSubsectors: row.health_subsectors ?? [],
+          residenceRegion: row.residence_region,
+          status: deriveAdminStatus(row.review_status, row.email_status, row.device_flag),
+          createdAt: row.created_at,
+          uiLanguage: row.ui_language ?? 'en',
+          deviceFlag: row.device_flag,
+          bankName: row.bank_name ?? '',
+          cohort: row.cohort ?? 'CPHIA-26',
+        };
+      });
 
-      let breakdownQuery = supabase.from('registrations').select('sector, health_subsectors');
+      let breakdownQuery = supabase
+        .from('registrations')
+        .select('sector, health_subsectors, sex, age, education_level');
       breakdownQuery = applyRegistrationFilters(breakdownQuery as never, filters) as typeof breakdownQuery;
       const { data: breakdownRows } = await breakdownQuery;
       breakdown = sectorBreakdown(breakdownRows ?? []);
+      demographics = buildDemographics(breakdownRows ?? []);
     }
 
     let migrationRequired = false;
@@ -128,6 +141,7 @@ export async function GET(request: NextRequest) {
       metrics,
       recent,
       breakdown,
+      demographics,
       filters: { sector, subsector },
       cohorts,
       shiftsToday,

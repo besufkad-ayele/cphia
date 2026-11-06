@@ -46,19 +46,69 @@ export function applyRegistrationFilters<T extends FilterableQuery>(
     next = next.contains('health_subsectors', [filters.subsector]) as T;
   }
   if (filters.search) {
-    next = next.or(
-      [
-        `first_name.ilike.%${filters.search}%`,
-        `last_name.ilike.%${filters.search}%`,
-        `email.ilike.%${filters.search}%`,
-        `phone.ilike.%${filters.search}%`,
-        `secondary_phone.ilike.%${filters.search}%`,
-        `fan_number.ilike.%${filters.search}%`,
-        `registration_id.ilike.%${filters.search}%`,
-      ].join(','),
-    ) as T;
+    const tokens = filters.search.split(/\s+/).filter(Boolean);
+    const fields = [
+      'first_name',
+      'middle_name',
+      'last_name',
+      'email',
+      'phone',
+      'secondary_phone',
+      'fan_number',
+      'registration_id',
+    ];
+    // Match full phrase on each field, and also each token (supports “name father grandfather”)
+    const clauses = [
+      ...fields.map((field) => `${field}.ilike.%${filters.search}%`),
+      ...tokens.flatMap((token) =>
+        ['first_name', 'middle_name', 'last_name'].map((field) => `${field}.ilike.%${token}%`),
+      ),
+    ];
+    next = next.or([...new Set(clauses)].join(',')) as T;
   }
   return next;
+}
+
+export function applyNameSort<T extends { order: (column: string, options?: { ascending?: boolean; nullsFirst?: boolean }) => T }>(
+  query: T,
+) {
+  return query
+    .order('first_name', { ascending: true })
+    .order('middle_name', { ascending: true })
+    .order('last_name', { ascending: true });
+}
+
+export function matchesVolunteerSearch(
+  row: {
+    firstName?: string;
+    middleName?: string;
+    lastName?: string;
+    name?: string;
+    email?: string;
+    phone?: string;
+    secondaryPhone?: string;
+    fanNumber?: string;
+    registrationId?: string;
+  },
+  search: string,
+) {
+  const q = search.trim().toLowerCase();
+  if (!q) return true;
+  const haystack = [
+    row.firstName,
+    row.middleName,
+    row.lastName,
+    row.name,
+    row.email,
+    row.phone,
+    row.secondaryPhone,
+    row.fanNumber,
+    row.registrationId,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return q.split(/\s+/).every((token) => haystack.includes(token));
 }
 
 export async function registrationStatusMetrics(

@@ -76,10 +76,12 @@ type FieldRow = {
 const FIELD_ROWS: FieldRow[] = [
   { key: 'registration_id', label: 'Registration ID' },
   { key: 'cohort', label: 'Cohort code' },
-  { key: 'first_name', label: 'First name' },
-  { key: 'middle_name', label: 'Middle name' },
-  { key: 'last_name', label: 'Last name' },
-  { key: 'full_name_amharic', label: 'Full name (Amharic)' },
+  { key: 'first_name', label: 'Given name' },
+  { key: 'middle_name', label: 'Father name' },
+  { key: 'last_name', label: 'Grandfather name' },
+  { key: 'amharic_first', label: 'Given name (Amharic)' },
+  { key: 'amharic_middle', label: 'Father name (Amharic)' },
+  { key: 'amharic_last', label: 'Grandfather name (Amharic)' },
   { key: 'sex', label: 'Sex', kind: 'select', options: ['Male', 'Female'] },
   { key: 'age', label: 'Age', kind: 'number' },
   { key: 'nationality', label: 'Nationality', kind: 'select', options: NATIONALITIES },
@@ -127,15 +129,29 @@ function displayValue(value: unknown) {
   return String(value);
 }
 
+function splitAmharicName(value: unknown) {
+  const parts = String(value ?? '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  return {
+    amharic_first: parts[0] ?? '',
+    amharic_middle: parts.length > 2 ? parts.slice(1, -1).join(' ') : parts[1] ?? '',
+    amharic_last: parts.length > 1 ? parts[parts.length - 1] : '',
+  };
+}
+
 function draftFromDetail(payload: Detail) {
   const next: Record<string, string> = {};
   for (const row of FIELD_ROWS) {
     if (row.kind === 'readonly') continue;
+    if (row.key === 'amharic_first' || row.key === 'amharic_middle' || row.key === 'amharic_last') continue;
     const value = payload[row.key];
     if (Array.isArray(value)) next[row.key] = value[0] ? String(value[0]) : '';
     else if (typeof value === 'boolean') next[row.key] = value ? 'true' : 'false';
     else next[row.key] = value == null ? '' : String(value);
   }
+  Object.assign(next, splitAmharicName(payload.full_name_amharic));
   next.languages = (payload.registration_languages ?? [])
     .map((item) => `${item.language} (${item.proficiency})`)
     .join(', ');
@@ -308,10 +324,19 @@ export default function VolunteerDetailPage() {
     if (!detail) return;
     setSaving(true);
     const form = new FormData();
+    const fullNameAmharic = [draft.amharic_first, draft.amharic_middle, draft.amharic_last]
+      .map((part) => (part ?? '').trim())
+      .filter(Boolean)
+      .join(' ');
     for (const [key, value] of Object.entries(draft)) {
-      if (key === 'created_at') continue;
+      if (key === 'created_at' || key === 'amharic_first' || key === 'amharic_middle' || key === 'amharic_last') continue;
+      if (key === 'health_subsectors' && draft.sector !== 'Health') {
+        form.append('health_subsectors', '');
+        continue;
+      }
       form.append(key, value);
     }
+    form.append('full_name_amharic', fullNameAmharic);
 
     const response = await fetch(`/api/admin/registrations/${params.id}`, {
       method: 'PATCH',
@@ -531,8 +556,15 @@ export default function VolunteerDetailPage() {
               </TableHeader>
               <TableBody>
                 {FIELD_ROWS.map((row) => {
+                  const currentSector = editing ? draft.sector : String(detail.sector ?? '');
+                  if (row.key === 'health_subsectors' && currentSector !== 'Health') return null;
                   const kind = row.kind ?? 'text';
                   const editingField = editing && kind !== 'readonly';
+                  const amharicParts = splitAmharicName(detail.full_name_amharic);
+                  const viewValue =
+                    row.key === 'amharic_first' || row.key === 'amharic_middle' || row.key === 'amharic_last'
+                      ? amharicParts[row.key]
+                      : detail[row.key];
                   return (
                     <TableRow key={row.key}>
                       <TableCell className="font-medium whitespace-normal">{row.label}</TableCell>
@@ -541,7 +573,14 @@ export default function VolunteerDetailPage() {
                           <select
                             className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
                             value={draft[row.key] ?? ''}
-                            onChange={(event) => setDraft((current) => ({ ...current, [row.key]: event.target.value }))}
+                            onChange={(event) => {
+                              const next = event.target.value;
+                              setDraft((current) => ({
+                                ...current,
+                                [row.key]: next,
+                                ...(row.key === 'sector' && next !== 'Health' ? { health_subsectors: '' } : {}),
+                              }));
+                            }}
                           >
                             {(row.options ?? []).map((option) => (
                               <option key={option || '__empty'} value={option}>
@@ -566,7 +605,7 @@ export default function VolunteerDetailPage() {
                             onChange={(event) => setDraft((current) => ({ ...current, [row.key]: event.target.value }))}
                           />
                         ) : (
-                          displayValue(detail[row.key])
+                          displayValue(viewValue)
                         )}
                       </TableCell>
                     </TableRow>
