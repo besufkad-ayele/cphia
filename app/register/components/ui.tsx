@@ -3,6 +3,7 @@
 import { Fragment, type ReactNode } from 'react';
 import type { AppLocale } from '../i18n';
 import { appLocales, localeLabels } from '../i18n';
+import { resolveFieldLabel } from '../lib/errorLabels';
 import type { LanguageRow } from '../types';
 
 export function GlassPanel({ children, className = '' }: { children: ReactNode; className?: string }) {
@@ -23,10 +24,10 @@ export function AppShell({
   children: ReactNode;
 }) {
   return (
-    <main lang={locale} className="app-bg min-h-screen px-3 pb-28 pt-4 text-white md:px-6 lg:px-10">
+    <main lang={locale} className="app-bg min-h-screen px-3 pb-32 pt-4 text-white md:px-6 lg:px-10">
       <header className="mx-auto flex max-w-6xl flex-col gap-3">
         <GlassPanel className="px-4 py-4">
-          <div className="flex items-center justify-between gap-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h1 className="m-0 text-base font-extrabold sm:text-lg">CPHIA Facility Volunteer Training</h1>
             <LanguageSwitcher locale={locale} onChange={onLocaleChange} />
           </div>
@@ -509,14 +510,14 @@ export function IdCard({
   );
 }
 
-export function ErrorSummary({ errors }: { errors: string[] }) {
+export function ErrorSummary({ errors }: { errors: Array<{ field: string; message: string }> }) {
   if (!errors.length) return null;
   return (
     <div className="rounded-[var(--radius-field)] border border-[#B42318]/40 bg-[#fff1f1] p-3 text-black" role="alert" aria-live="assertive">
       <p className="m-0 text-sm font-extrabold text-[#B42318]">Please fix the following:</p>
       <ul className="mb-0 mt-2 list-disc pl-5 text-sm text-[#8b1c13]">
         {errors.slice(0, 6).map((error) => (
-          <li key={error}>{error}</li>
+          <li key={`${error.field}:${error.message}`}>{`${resolveFieldLabel(error.field)}: ${error.message}`}</li>
         ))}
       </ul>
     </div>

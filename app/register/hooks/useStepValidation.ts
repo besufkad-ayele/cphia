@@ -7,7 +7,6 @@ import { backgroundStepSchema, personalStepSchema, reviewStepSchema } from '../s
 import type { RegisterFormValues } from '../types';
 
 const stepFieldMap: Record<number, Array<keyof RegisterFormValues>> = {
-  0: ['agree'],
   1: [
     'firstName',
     'lastName',
@@ -32,14 +31,16 @@ const stepFieldMap: Record<number, Array<keyof RegisterFormValues>> = {
   3: ['sector', 'healthSubsectors'],
 };
 
-function flattenErrors(errors: FieldErrors<RegisterFormValues>, prefix = ''): string[] {
-  const messages: string[] = [];
+export type SummaryError = { field: string; message: string };
+
+function flattenErrors(errors: FieldErrors<RegisterFormValues>, prefix = ''): SummaryError[] {
+  const messages: SummaryError[] = [];
 
   for (const [key, value] of Object.entries(errors)) {
     const field = prefix ? `${prefix}.${key}` : key;
     if (!value) continue;
     if ('message' in value && typeof value.message === 'string') {
-      messages.push(`${field}: ${value.message}`);
+      messages.push({ field, message: value.message });
       continue;
     }
     if (typeof value === 'object') {
@@ -52,20 +53,26 @@ function flattenErrors(errors: FieldErrors<RegisterFormValues>, prefix = ''): st
 
 export function useStepValidation(form: UseFormReturn<RegisterFormValues>) {
   const triggerStep = async (step: number) => {
+    if (step === 0) {
+      const agree = form.getValues('agree');
+      if (!agree) {
+        form.setError('agree', { message: 'Consent is required' });
+        return false;
+      }
+      return true;
+    }
+
     const fields = stepFieldMap[step] ?? [];
     const valid = await form.trigger(fields, { shouldFocus: true });
-
-    if (!valid) {
-      return false;
-    }
+    if (!valid) return false;
 
     const values = form.getValues();
 
     if (step === 1) {
       const parsed = personalStepSchema.safeParse({
         ...values,
-        age: Number(values.age),
-        phoneIsWhatsApp: values.phoneIsWhatsApp === true,
+        age: values.age === '' ? undefined : Number(values.age),
+        phoneIsWhatsApp: values.phoneIsWhatsApp,
       });
       if (!parsed.success) {
         parsed.error.issues.forEach((issue: ZodIssue) => {

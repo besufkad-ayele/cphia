@@ -1,50 +1,21 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { ADMIN_SESSION_COOKIE, verifyAdminJwt } from '@/app/lib/admin/session';
 
-const ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL ?? 'ayebesufkad@gmail.com').trim().toLowerCase();
-const SESSION_SECRET = (process.env.ADMIN_SESSION_SECRET ?? process.env.NEXTAUTH_SECRET ?? 'cphia-admin-dev-secret').trim();
-const SESSION_COOKIE = 'cphia_admin_session';
-
-function signValue(value: string) {
-  return createHmac('sha256', SESSION_SECRET).update(value).digest('hex');
-}
-
-function isValidSessionCookie(cookieValue: string | undefined) {
-  if (!cookieValue) return false;
-
-  const separatorIndex = cookieValue.lastIndexOf('.');
-  if (separatorIndex <= 0) return false;
-
-  const email = decodeURIComponent(cookieValue.slice(0, separatorIndex));
-  const signature = cookieValue.slice(separatorIndex + 1);
-
-  if (!email || !signature) return false;
-
-  const expectedSignature = signValue(email);
-  if (email.toLowerCase() !== ADMIN_EMAIL) return false;
-
-  const actual = Buffer.from(signature, 'hex');
-  const expected = Buffer.from(expectedSignature, 'hex');
-
-  if (actual.length !== expected.length) return false;
-
-  return timingSafeEqual(actual, expected);
-}
-
-export function proxy(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (pathname === '/admin/login' || pathname === '/api/admin/login' || pathname === '/api/admin/logout') {
     return NextResponse.next();
   }
 
-  if (pathname.startsWith('/admin')) {
-    const sessionCookie = request.cookies.get(SESSION_COOKIE)?.value;
-
-    if (!isValidSessionCookie(sessionCookie)) {
-      const loginUrl = new URL('/admin/login', request.url);
-      return NextResponse.redirect(loginUrl);
+  if (pathname.startsWith('/admin') || pathname.startsWith('/api/admin')) {
+    const session = await verifyAdminJwt(request.cookies.get(ADMIN_SESSION_COOKIE)?.value);
+    if (!session) {
+      if (pathname.startsWith('/api/admin')) {
+        return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 });
+      }
+      return NextResponse.redirect(new URL('/admin/login', request.url));
     }
   }
 

@@ -45,7 +45,7 @@ export default function PublicHomePage() {
             <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.9 }}>Africa CDC • Government of Ethiopia</div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 32, alignItems: 'center' }}>
+          <div className="home-hero-grid">
             <div>
               <p style={{ margin: 0, fontSize: 12, letterSpacing: 1.8, textTransform: 'uppercase', fontWeight: 700, color: '#e6f8f2' }}>
                 Volunteer Opportunity
@@ -109,13 +109,7 @@ export default function PublicHomePage() {
               <img
                 src="/hero.jpg"
                 alt="CPHIA 2026 conference landscape"
-                style={{
-                  width: '100%',
-                  height: 460,
-                  display: 'block',
-                  objectFit: 'cover',
-                  borderRadius: 18,
-                }}
+                className="home-hero-photo"
               />
               <div style={{ padding: '18px 10px 8px' }}>
                 <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 1.4, textTransform: 'uppercase', opacity: 0.85 }}>

@@ -31,7 +31,7 @@ export type EducationLevel = (typeof EDUCATION_LEVELS)[number];
 export const SECOND_ID_TYPES = [
   'Passport',
   'Kebele ID',
-  "Driver's License",
+  "Driver's license",
   'Other',
 ] as const;
 

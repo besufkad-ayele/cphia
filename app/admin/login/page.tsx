@@ -19,7 +19,8 @@ export default function AdminLoginPage() {
     });
 
     if (!response.ok) {
-      setError('Invalid email or password.');
+      const payload = await response.json().catch(() => ({}));
+      setError(payload?.error === 'MISCONFIGURED' ? 'Admin login is not configured.' : 'Invalid email or password.');
       setLoading(false);
       return;
     }
@@ -44,7 +45,7 @@ export default function AdminLoginPage() {
               placeholder="admin@cphia.org"
               required
               autoComplete="username"
-              style={{ minHeight: 48, borderRadius: 12, border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.06)', color: '#fff', padding: '0 14px' }}
+              style={{ minHeight: 48, width: '100%', borderRadius: 12, border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.06)', color: '#fff', padding: '0 14px', fontSize: 16 }}
             />
           </label>
 
@@ -57,7 +58,7 @@ export default function AdminLoginPage() {
                 placeholder="Enter your password"
                 required
                 autoComplete="current-password"
-                style={{ minHeight: 48, width: '100%', borderRadius: 12, border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.06)', color: '#fff', padding: '0 46px 0 14px' }}
+                style={{ minHeight: 48, width: '100%', borderRadius: 12, border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.06)', color: '#fff', padding: '0 46px 0 14px', fontSize: 16 }}
               />
               <button
                 type="button"

@@ -1,4 +1,5 @@
 import type { AppLocale } from './i18n';
+import type { EDUCATION_LEVELS, SECOND_ID_TYPES, SECTORS } from '@cphia/shared/constants';
 
 export type Proficiency = 'Basic' | 'Conversational' | 'Fluent' | 'Native';
 
@@ -20,10 +21,10 @@ export type RegisterFormValues = {
   amharicLastName: string;
   fullNameAmharic: string;
   sex: 'Male' | 'Female' | '';
-  age: string;
+  age: number | '';
   nationality: string;
   fanNumber: string;
-  secondIdType: '' | 'Passport' | 'Kebele ID' | "Driver's license" | 'Other';
+  secondIdType: '' | (typeof SECOND_ID_TYPES)[number];
   secondIdNumber: string;
   phone: string;
   phoneIsWhatsApp: boolean | null;
@@ -35,12 +36,12 @@ export type RegisterFormValues = {
   residenceCity: string;
   residenceDetail: string;
   profession: string;
-  educationLevel: '' | 'Certificate' | 'Diploma' | "Bachelor's" | "Master's" | 'PhD' | 'Other';
+  educationLevel: '' | (typeof EDUCATION_LEVELS)[number];
   emergencyName: string;
   emergencyPhone: string;
   emergencyRelationship: string;
   languages: LanguageRow[];
-  sector: '' | 'Health' | 'Tourism' | 'Culture and Sport' | 'MoFA' | 'Transport';
+  sector: '' | (typeof SECTORS)[number];
   healthSubsectors: string[];
   uiLanguage: AppLocale;
 };

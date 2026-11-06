@@ -25,6 +25,125 @@ body {
   padding: 0;
   min-height: 100%;
   font-family: Inter, "Noto Sans Ethiopic", Arial, Helvetica, sans-serif;
+  overflow-x: hidden;
+}
+
+input,
+select,
+textarea,
+button {
+  font-size: 16px;
+}
+
+.home-hero-grid {
+  display: grid;
+  gap: 28px;
+  align-items: center;
+}
+
+.home-hero-photo {
+  width: 100%;
+  height: min(42vh, 360px);
+  display: block;
+  object-fit: cover;
+  border-radius: 18px;
+}
+
+.admin-table-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.admin-desktop-table {
+  overflow-x: auto;
+}
+
+.admin-mobile-cards {
+  display: none;
+}
+
+.admin-card {
+  border: 1px solid #dfe9e8;
+  border-radius: 18px;
+  padding: 14px;
+  margin-top: 12px;
+  background: #fff;
+}
+
+.admin-card-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.admin-card p {
+  margin: 4px 0 0;
+  color: #4b6668;
+  font-size: 13px;
+}
+
+.admin-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 24, 23, 0.55);
+  z-index: 40;
+  display: grid;
+  justify-items: end;
+}
+
+.admin-drawer {
+  width: min(100%, 420px);
+  height: 100%;
+  background: #f7fbfa;
+  color: #10262a;
+  padding: 20px;
+  overflow: auto;
+}
+
+.admin-drawer-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.admin-drawer-body {
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.admin-photo {
+  width: 96px;
+  height: 96px;
+  border-radius: 18px;
+  object-fit: cover;
+}
+
+@media (min-width: 900px) {
+  .home-hero-grid {
+    grid-template-columns: 1.2fr 0.8fr;
+  }
+
+  .home-hero-photo {
+    height: 460px;
+  }
+}
+
+@media (max-width: 800px) {
+  .admin-desktop-table {
+    display: none;
+  }
+
+  .admin-mobile-cards {
+    display: block;
+  }
 }
 
 * {
