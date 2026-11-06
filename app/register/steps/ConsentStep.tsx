@@ -1,6 +1,8 @@
 "use client";
 
 import type { UseFormReturn } from 'react-hook-form';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { getRegisterTranslations } from '../i18n';
 import type { RegisterFormValues } from '../types';
 
@@ -14,28 +16,29 @@ export function ConsentStep({
   const agree = form.watch('agree');
 
   return (
-    <div className="grid gap-4">
-      <h2 className="m-0 text-2xl font-black text-black">{t('consentTitle')}</h2>
-      <p className="m-0 text-black/80">{t('consentNote')}</p>
-      <div className="glass-dark rounded-2xl border border-white/30 p-4 text-sm font-semibold text-white">⚠ {t('consentWarning')}</div>
+    <div className="grid gap-4 p-1">
+      <h2 className="m-0 text-2xl font-semibold">{t('consentTitle')}</h2>
+      <p className="m-0 text-muted-foreground">{t('consentNote')}</p>
+      <Alert>
+        <AlertTitle>{t('consentWarning')}</AlertTitle>
+        <AlertDescription>One person, one device, one CPHIA-26 volunteer registration.</AlertDescription>
+      </Alert>
       <div className="grid gap-2">
-        <span className="text-sm font-bold text-black">{t('haveReady')}</span>
-        <ul className="m-0 list-disc pl-5 text-sm text-black/80">
-          <li>FAN number (optional)</li>
-          <li>Phone number</li>
-          <li>Email address</li>
-          <li>Optional photo</li>
+        <span className="text-sm font-medium">{t('haveReady')}</span>
+        <ul className="m-0 list-disc pl-5 text-sm text-muted-foreground">
+          <li>16-digit national ID (FAN) and a photo of that ID</li>
+          <li>Professional passport-style photo for the event ID</li>
+          <li>Phone, email, and bank details</li>
+          <li>U-Report screenshot if you are registered</li>
         </ul>
       </div>
 
-      <label className="flex min-h-12 items-start gap-3 rounded-2xl border border-black/20 bg-white p-3 text-black">
-        <input
-          type="checkbox"
-          className="mt-1 h-5 w-5"
+      <label className="flex min-h-12 items-start gap-3 rounded-xl border p-3">
+        <Checkbox
           checked={agree}
-          onChange={(event) => form.setValue('agree', event.target.checked, { shouldValidate: true, shouldDirty: true })}
+          onCheckedChange={(checked) => form.setValue('agree', Boolean(checked), { shouldValidate: true, shouldDirty: true })}
         />
-        <span className="text-sm font-semibold">{t('agree')}</span>
+        <span className="text-sm font-medium">{t('agree')}</span>
       </label>
     </div>
   );

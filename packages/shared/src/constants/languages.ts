@@ -19,7 +19,12 @@ export const UN_LANGUAGES = [
   'French',
   'Russian',
   'Spanish',
+  'Kiswahili',
+  'Portuguese',
+  'Hausa',
 ] as const;
+
+export const INTERNATIONAL_LANGUAGES = UN_LANGUAGES;
 
 export type LanguageGroup = 'ethiopian' | 'un' | 'other';
 

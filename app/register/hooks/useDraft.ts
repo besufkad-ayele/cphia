@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 import { useEffect, useRef, useState } from 'react';
 import type { FieldValues, UseFormReturn } from 'react-hook-form';
@@ -7,6 +7,10 @@ import type { StoredPhoto } from '../types';
 const DRAFT_DB = 'cphia-registration-db';
 const DRAFT_STORE = 'register';
 const PHOTO_KEY = 'draft-photo';
+const UREPORT_KEY = 'draft-ureport';
+const FAN_PHOTO_KEY = 'draft-fan-photo';
+const SECOND_ID_PHOTO_KEY = 'draft-second-id-photo';
+const BANK_OWNER_PHOTO_KEY = 'draft-bank-owner-id-photo';
 
 export const STORAGE_KEY = 'cphia-registration-draft-v2';
 export const SESSION_KEY = 'cphia-registration-session-v1';
@@ -28,39 +32,76 @@ function openDraftDb(): Promise<IDBDatabase> {
   });
 }
 
-async function setPhotoInDb(photo: StoredPhoto | null) {
+async function setBlobInDb(key: string, photo: StoredPhoto | null) {
   const db = await openDraftDb();
   const tx = db.transaction(DRAFT_STORE, 'readwrite');
   const store = tx.objectStore(DRAFT_STORE);
-  if (photo) {
-    store.put(photo, PHOTO_KEY);
-  } else {
-    store.delete(PHOTO_KEY);
-  }
+  if (photo) store.put(photo, key);
+  else store.delete(key);
   await new Promise<void>((resolve, reject) => {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
 }
 
-async function getPhotoFromDb(): Promise<StoredPhoto | null> {
+async function getBlobFromDb(key: string): Promise<StoredPhoto | null> {
   const db = await openDraftDb();
   const tx = db.transaction(DRAFT_STORE, 'readonly');
   const store = tx.objectStore(DRAFT_STORE);
-  const request = store.get(PHOTO_KEY);
+  const request = store.get(key);
   return new Promise((resolve, reject) => {
     request.onsuccess = () => resolve((request.result as StoredPhoto | undefined) ?? null);
     request.onerror = () => reject(request.error);
   });
 }
 
+function useStoredBlob() {
+  const [photo, setPhoto] = useState<StoredPhoto | null>(null);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const objectUrlRef = useRef<string | null>(null);
+
+  const hydrate = async (key: string) => {
+    const saved = await getBlobFromDb(key);
+    if (!saved) return;
+    setPhoto(saved);
+    const url = URL.createObjectURL(saved.blob);
+    objectUrlRef.current = url;
+    setPhotoUrl(url);
+  };
+
+  const setDraft = async (key: string, nextPhoto: StoredPhoto | null) => {
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
+    setPhoto(nextPhoto);
+    await setBlobInDb(key, nextPhoto);
+    if (nextPhoto) {
+      const url = URL.createObjectURL(nextPhoto.blob);
+      objectUrlRef.current = url;
+      setPhotoUrl(url);
+    } else {
+      setPhotoUrl(null);
+    }
+  };
+
+  const revoke = () => {
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+  };
+
+  return { photo, photoUrl, hydrate, setDraft, revoke };
+}
+
 export function useDraft<TFieldValues extends FieldValues>(form: UseFormReturn<TFieldValues>) {
   const [hydrated, setHydrated] = useState(false);
   const [submittedId, setSubmittedId] = useState<string | null>(null);
-  const [photo, setPhoto] = useState<StoredPhoto | null>(null);
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [submittedEmailSent, setSubmittedEmailSent] = useState(false);
   const timerRef = useRef<number | null>(null);
-  const objectUrlRef = useRef<string | null>(null);
+  const photoStore = useStoredBlob();
+  const ureportStore = useStoredBlob();
+  const fanPhotoStore = useStoredBlob();
+  const secondIdPhotoStore = useStoredBlob();
+  const bankOwnerPhotoStore = useStoredBlob();
 
   useEffect(() => {
     let mounted = true;
@@ -79,8 +120,11 @@ export function useDraft<TFieldValues extends FieldValues>(form: UseFormReturn<T
       const savedSubmitted = localStorage.getItem(SUBMITTED_KEY);
       if (savedSubmitted) {
         try {
-          const parsed = JSON.parse(savedSubmitted) as { registrationId?: string };
-          if (parsed.registrationId && mounted) setSubmittedId(parsed.registrationId);
+          const parsed = JSON.parse(savedSubmitted) as { registrationId?: string; emailSent?: boolean };
+          if (parsed.registrationId && mounted) {
+            setSubmittedId(parsed.registrationId);
+            setSubmittedEmailSent(Boolean(parsed.emailSent));
+          }
         } catch {
           // noop
         }
@@ -91,13 +135,11 @@ export function useDraft<TFieldValues extends FieldValues>(form: UseFormReturn<T
       }
 
       try {
-        const savedPhoto = await getPhotoFromDb();
-        if (savedPhoto && mounted) {
-          setPhoto(savedPhoto);
-          const url = URL.createObjectURL(savedPhoto.blob);
-          objectUrlRef.current = url;
-          setPhotoUrl(url);
-        }
+        await photoStore.hydrate(PHOTO_KEY);
+        await ureportStore.hydrate(UREPORT_KEY);
+        await fanPhotoStore.hydrate(FAN_PHOTO_KEY);
+        await secondIdPhotoStore.hydrate(SECOND_ID_PHOTO_KEY);
+        await bankOwnerPhotoStore.hydrate(BANK_OWNER_PHOTO_KEY);
       } catch {
         // noop
       }
@@ -109,12 +151,12 @@ export function useDraft<TFieldValues extends FieldValues>(form: UseFormReturn<T
 
     return () => {
       mounted = false;
-      if (objectUrlRef.current) {
-        URL.revokeObjectURL(objectUrlRef.current);
-      }
-      if (timerRef.current) {
-        window.clearTimeout(timerRef.current);
-      }
+      photoStore.revoke();
+      ureportStore.revoke();
+      fanPhotoStore.revoke();
+      secondIdPhotoStore.revoke();
+      bankOwnerPhotoStore.revoke();
+      if (timerRef.current) window.clearTimeout(timerRef.current);
     };
   }, [form]);
 
@@ -122,9 +164,7 @@ export function useDraft<TFieldValues extends FieldValues>(form: UseFormReturn<T
     if (!hydrated) return;
 
     const subscription = form.watch((values) => {
-      if (timerRef.current) {
-        window.clearTimeout(timerRef.current);
-      }
+      if (timerRef.current) window.clearTimeout(timerRef.current);
       timerRef.current = window.setTimeout(() => {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(values));
       }, 400);
@@ -133,30 +173,26 @@ export function useDraft<TFieldValues extends FieldValues>(form: UseFormReturn<T
     return () => subscription.unsubscribe();
   }, [form, hydrated]);
 
-  const setDraftPhoto = async (nextPhoto: StoredPhoto | null) => {
-    if (objectUrlRef.current) {
-      URL.revokeObjectURL(objectUrlRef.current);
-      objectUrlRef.current = null;
-    }
-
-    setPhoto(nextPhoto);
-    await setPhotoInDb(nextPhoto);
-
-    if (nextPhoto) {
-      const url = URL.createObjectURL(nextPhoto.blob);
-      objectUrlRef.current = url;
-      setPhotoUrl(url);
-    } else {
-      setPhotoUrl(null);
-    }
-  };
-
   return {
     hydrated,
     submittedId,
     setSubmittedId,
-    photo,
-    photoUrl,
-    setDraftPhoto,
+    submittedEmailSent,
+    setSubmittedEmailSent,
+    photo: photoStore.photo,
+    photoUrl: photoStore.photoUrl,
+    setDraftPhoto: (next: StoredPhoto | null) => photoStore.setDraft(PHOTO_KEY, next),
+    ureportPhoto: ureportStore.photo,
+    ureportUrl: ureportStore.photoUrl,
+    setUreportPhoto: (next: StoredPhoto | null) => ureportStore.setDraft(UREPORT_KEY, next),
+    fanPhoto: fanPhotoStore.photo,
+    fanPhotoUrl: fanPhotoStore.photoUrl,
+    setFanPhoto: (next: StoredPhoto | null) => fanPhotoStore.setDraft(FAN_PHOTO_KEY, next),
+    secondIdPhoto: secondIdPhotoStore.photo,
+    secondIdPhotoUrl: secondIdPhotoStore.photoUrl,
+    setSecondIdPhoto: (next: StoredPhoto | null) => secondIdPhotoStore.setDraft(SECOND_ID_PHOTO_KEY, next),
+    bankOwnerPhoto: bankOwnerPhotoStore.photo,
+    bankOwnerPhotoUrl: bankOwnerPhotoStore.photoUrl,
+    setBankOwnerPhoto: (next: StoredPhoto | null) => bankOwnerPhotoStore.setDraft(BANK_OWNER_PHOTO_KEY, next),
   };
 }

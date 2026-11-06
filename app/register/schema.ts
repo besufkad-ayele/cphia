@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { EDUCATION_LEVELS, HEALTH_SUBSECTORS, SECOND_ID_TYPES, SECTORS } from '@cphia/shared/constants';
+import { ALL_BANKS, EDUCATION_LEVELS, HEALTH_SUBSECTORS, SECOND_ID_TYPES, SECTORS } from '@cphia/shared/constants';
 import { phoneSchema } from '@cphia/shared/schemas';
 import type { RegisterFormValues } from './types';
 
@@ -8,6 +8,9 @@ const sectorEnum = z.enum([...SECTORS] as [string, ...string[]]);
 const educationEnum = z.enum([...EDUCATION_LEVELS] as [string, ...string[]]);
 const secondIdEnum = z.enum([...SECOND_ID_TYPES] as [string, ...string[]]);
 const healthEnum = z.enum([...HEALTH_SUBSECTORS] as [string, ...string[]]);
+const bankEnum = z.enum([...ALL_BANKS] as [string, ...string[]]);
+
+const fanSchema = z.string().trim().refine((value) => /^\d{16}$/.test(value.replace(/\s/g, '')), 'FAN must be 16 digits');
 
 export const registerFormSchema = z.object({
   agree: z.boolean().refine((value) => value === true, 'Consent is required'),
@@ -21,13 +24,11 @@ export const registerFormSchema = z.object({
   sex: z.enum(['Male', 'Female', ''], { required_error: 'Sex is required' }),
   age: z.union([z.number().int().min(18).max(70), z.literal('')]).default(''),
   nationality: z.string().min(1, 'Nationality is required').max(100),
-  fanNumber: z.string().trim().refine((value) => {
-    const digits = value.replace(/\s/g, '');
-    return digits === '' || /^\d{10,20}$/.test(digits);
-  }, 'Enter at least 10 digits').default(''),
+  fanNumber: fanSchema,
   secondIdType: z.union([secondIdEnum, z.literal('')]).default(''),
   secondIdNumber: z.string().max(80).default(''),
   phone: phoneSchema,
+  secondaryPhone: optionalPhoneField,
   phoneIsWhatsApp: z.boolean().nullable().default(null),
   whatsappNumber: optionalPhoneField,
   whatsappNo: z.boolean().default(false),
@@ -51,7 +52,12 @@ export const registerFormSchema = z.object({
     }),
   ).min(1, 'Select at least one language'),
   sector: z.union([sectorEnum, z.literal('')]).default(''),
-  healthSubsectors: z.array(z.string()).default([]),
+  healthSubsectors: z.array(z.string()).max(1).default([]),
+  bankName: z.union([bankEnum, z.literal('')]).default(''),
+  bankAccountName: z.string().max(120).default(''),
+  bankAccountNumber: z.string().max(30).default(''),
+  bankAccountOtherOwner: z.boolean().default(false),
+  ureportRegistered: z.boolean().nullable().default(null),
   uiLanguage: z.enum(['en', 'am', 'om', 'ti']).default('en'),
 })
   .refine((data) => data.email === data.confirmEmail, {
@@ -66,10 +72,10 @@ export const registerFormSchema = z.object({
     },
   )
   .refine(
-    (data) => data.sector !== 'Health' || data.healthSubsectors.length > 0,
+    (data) => data.sector !== 'Health' || data.healthSubsectors.length === 1,
     {
       path: ['healthSubsectors'],
-      message: 'Select at least one health sub-sector',
+      message: 'Select one health sub-sector',
     },
   );
 
@@ -84,11 +90,9 @@ export const personalStepSchema = z.object({
   sex: z.enum(['Male', 'Female'], { required_error: 'Sex is required' }),
   age: z.coerce.number().int().min(18, 'Age must be 18 or older').max(70, 'Age must be 70 or younger'),
   nationality: z.string().min(1, 'Nationality is required').max(100),
-  fanNumber: z.string().trim().refine((value) => {
-    const digits = value.replace(/\s/g, '');
-    return digits === '' || /^\d{10,20}$/.test(digits);
-  }, 'Enter at least 10 digits').default(''),
+  fanNumber: fanSchema,
   phone: phoneSchema,
+  secondaryPhone: optionalPhoneField,
   phoneIsWhatsApp: z.boolean({ required_error: 'Tell us if this number is on WhatsApp' }),
   whatsappNumber: optionalPhoneField,
   whatsappNo: z.boolean().default(false),
@@ -133,12 +137,17 @@ export const backgroundStepSchema = z.object({
 
 export const reviewStepSchema = z.object({
   sector: sectorEnum,
-  healthSubsectors: z.array(healthEnum).default([]),
+  healthSubsectors: z.array(healthEnum).max(1).default([]),
+  bankName: bankEnum,
+  bankAccountName: z.string().min(1, 'Account name is required').max(120),
+  bankAccountNumber: z.string().trim().min(5, 'Account number is required').max(30),
+  bankAccountOtherOwner: z.boolean().default(false),
+  ureportRegistered: z.boolean({ required_error: 'Tell us if you registered on U-Report' }),
 }).refine(
-  (data) => data.sector !== 'Health' || data.healthSubsectors.length > 0,
+  (data) => data.sector !== 'Health' || data.healthSubsectors.length === 1,
   {
     path: ['healthSubsectors'],
-    message: 'Select at least one health sub-sector',
+    message: 'Select one health sub-sector',
   },
 );
 
@@ -159,6 +168,7 @@ export function toSubmissionPayload(values: RegisterFormValues, idempotencyKey: 
     secondIdType: values.secondIdType,
     secondIdNumber: values.secondIdNumber,
     phone: values.phone,
+    secondaryPhone: values.secondaryPhone,
     phoneIsWhatsApp: Boolean(values.phoneIsWhatsApp),
     whatsappNumber: values.phoneIsWhatsApp ? '' : values.whatsappNumber,
     whatsappNo: values.whatsappNo,
@@ -175,6 +185,11 @@ export function toSubmissionPayload(values: RegisterFormValues, idempotencyKey: 
     languages: values.languages,
     sector: values.sector,
     healthSubsectors: values.healthSubsectors,
+    bankName: values.bankName,
+    bankAccountName: values.bankAccountName,
+    bankAccountNumber: values.bankAccountNumber,
+    bankAccountOtherOwner: Boolean(values.bankAccountOtherOwner),
+    ureportRegistered: Boolean(values.ureportRegistered),
     uiLanguage: values.uiLanguage,
     idempotencyKey,
   };

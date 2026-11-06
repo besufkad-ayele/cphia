@@ -27,6 +27,7 @@ export type RegisterFormValues = {
   secondIdType: '' | (typeof SECOND_ID_TYPES)[number];
   secondIdNumber: string;
   phone: string;
+  secondaryPhone: string;
   phoneIsWhatsApp: boolean | null;
   whatsappNumber: string;
   whatsappNo: boolean;
@@ -43,6 +44,11 @@ export type RegisterFormValues = {
   languages: LanguageRow[];
   sector: '' | (typeof SECTORS)[number];
   healthSubsectors: string[];
+  bankName: string;
+  bankAccountName: string;
+  bankAccountNumber: string;
+  bankAccountOtherOwner: boolean;
+  ureportRegistered: boolean | null;
   uiLanguage: AppLocale;
 };
 

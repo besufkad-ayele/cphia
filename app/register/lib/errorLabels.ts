@@ -13,6 +13,7 @@ export const FIELD_LABEL_MAP: Record<string, string> = {
   secondIdType: 'Second ID type',
   secondIdNumber: 'Second ID number',
   phone: 'Phone',
+  secondaryPhone: 'Secondary phone',
   phoneIsWhatsApp: 'Phone is WhatsApp',
   whatsappNumber: 'WhatsApp number',
   whatsappNo: 'No WhatsApp',
@@ -28,7 +29,12 @@ export const FIELD_LABEL_MAP: Record<string, string> = {
   emergencyRelationship: 'Emergency relationship',
   languages: 'Languages',
   sector: 'Sector',
-  healthSubsectors: 'Health sub-sectors',
+  healthSubsectors: 'Health sub-sector',
+  bankName: 'Bank',
+  bankAccountName: 'Account name',
+  bankAccountNumber: 'Account number',
+  bankAccountOtherOwner: 'Someone else owns this account',
+  ureportRegistered: 'U-Report registration',
   agree: 'Consent agreement',
 };
 

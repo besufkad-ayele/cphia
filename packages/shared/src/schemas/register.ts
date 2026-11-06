@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ALL_BANKS } from '../constants/banks';
 import { EDUCATION_LEVELS, HEALTH_SUBSECTORS, SECOND_ID_TYPES, SECTORS } from '../constants/sectors';
 
 export const proficiencySchema = z.enum(['Basic', 'Conversational', 'Fluent', 'Native']);
@@ -16,10 +17,7 @@ export const emailSchema = z.string().trim().email();
 export const fanNumberSchema = z
   .string()
   .trim()
-  .refine((value) => {
-    const digits = value.replace(/\s/g, '');
-    return digits === '' || /^\d{10,20}$/.test(digits);
-  }, 'Invalid FAN number');
+  .refine((value) => /^\d{16}$/.test(value.replace(/\s/g, '')), 'FAN must be 16 digits');
 
 export const registrationLanguageSchema = z.object({
   id: z.string().min(1),
@@ -33,6 +31,7 @@ const sectorEnum = z.enum(SECTORS);
 const healthSubsectorEnum = z.enum(HEALTH_SUBSECTORS);
 const educationEnum = z.enum(EDUCATION_LEVELS);
 const secondIdEnum = z.enum(SECOND_ID_TYPES);
+const bankEnum = z.enum(ALL_BANKS);
 
 export const registrationSchema = z.object({
   agree: z.boolean().refine((value) => value === true, 'Consent is required'),
@@ -47,6 +46,7 @@ export const registrationSchema = z.object({
   secondIdType: secondIdEnum.optional().or(z.literal('')),
   secondIdNumber: z.string().max(80).optional().or(z.literal('')),
   phone: phoneSchema,
+  secondaryPhone: phoneSchema.optional().or(z.literal('')),
   phoneIsWhatsApp: z.boolean(),
   whatsappNumber: phoneSchema.optional().or(z.literal('')),
   whatsappNo: z.boolean().default(false),
@@ -62,7 +62,12 @@ export const registrationSchema = z.object({
   emergencyRelationship: z.string().min(1).max(80),
   languages: z.array(registrationLanguageSchema).min(1),
   sector: sectorEnum,
-  healthSubsectors: z.array(healthSubsectorEnum).default([]),
+  healthSubsectors: z.array(healthSubsectorEnum).max(1).default([]),
+  bankName: bankEnum,
+  bankAccountName: z.string().min(1).max(120),
+  bankAccountNumber: z.string().trim().min(5).max(30),
+  bankAccountOtherOwner: z.boolean().default(false),
+  ureportRegistered: z.boolean(),
   uiLanguage: z.enum(['en', 'am', 'om', 'ti']).default('en'),
   idempotencyKey: z.string().uuid(),
   deviceTokenHash: z.string().optional(),
@@ -74,9 +79,9 @@ export const registrationSchema = z.object({
 }).refine((data) => data.languages.some((language) => language.selected && language.language.trim().length > 0), {
   path: ['languages'],
   message: 'At least one language must be selected',
-}).refine((data) => data.sector !== 'Health' || data.healthSubsectors.length > 0, {
+}).refine((data) => data.sector !== 'Health' || data.healthSubsectors.length === 1, {
   path: ['healthSubsectors'],
-  message: 'Select at least one health sub-sector',
+  message: 'Select one health sub-sector',
 });
 
 export type RegistrationInput = z.infer<typeof registrationSchema>;

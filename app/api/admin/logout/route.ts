@@ -7,3 +7,9 @@ export function GET(request: NextRequest) {
   clearAdminCookie(response);
   return response;
 }
+
+export function POST() {
+  const response = NextResponse.json({ ok: true });
+  clearAdminCookie(response);
+  return response;
+}

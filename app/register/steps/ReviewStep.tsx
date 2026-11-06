@@ -1,20 +1,42 @@
 "use client";
 
 import type { UseFormReturn } from 'react-hook-form';
-import { GoldButton, ReviewSection } from '../components/ui';
+import { VolunteerIdCard } from '@/components/register/volunteer-id-card';
 import { getRegisterTranslations } from '../i18n';
+import type { VolunteerBadge } from '../lib/badge';
+import { downloadIdAsImage } from '../lib/canvasDownload';
 import type { RegisterFormValues } from '../types';
+
+export function badgeFromForm(values: RegisterFormValues, registrationId = 'ID pending'): VolunteerBadge {
+  return {
+    registrationId,
+    name: `${values.firstName} ${values.middleName} ${values.lastName}`.replace(/\s+/g, ' ').trim(),
+    amharicName: values.fullNameAmharic,
+    sex: values.sex,
+    age: String(values.age || ''),
+    nationality: values.nationality,
+    fanNumber: values.fanNumber,
+    phone: values.phone,
+    sector: values.sector,
+    profession: values.profession,
+    residence: `${values.residenceRegion} / ${values.residenceCity} / ${values.residenceDetail}`,
+    languages: values.languages
+      .filter((item) => item.selected && item.language.trim())
+      .map((item) => `${item.language} (${item.proficiency})`)
+      .join(', '),
+  };
+}
 
 export function ReviewStep({
   form,
   photoUrl,
+  ureportUrl,
   serverError,
-  isSubmitting,
   onEdit,
-  onSubmit,
 }: {
   form: UseFormReturn<RegisterFormValues>;
   photoUrl: string | null;
+  ureportUrl: string | null;
   serverError: string | null;
   isSubmitting: boolean;
   onEdit: (step: number) => void;
@@ -22,53 +44,22 @@ export function ReviewStep({
 }) {
   const values = form.watch();
   const t = getRegisterTranslations(values.uiLanguage);
+  const badge = badgeFromForm(values);
 
   return (
     <div className="grid gap-4">
-      <h2 className="m-0 text-xl font-black text-black">{t('step4')}</h2>
-
-      <ReviewSection title="Personal" onEdit={() => onEdit(1)}>
-        <p><strong>Name:</strong> {values.firstName} {values.middleName} {values.lastName}</p>
-        <p><strong>Amharic:</strong> {values.fullNameAmharic || '-'}</p>
-        <p><strong>Sex:</strong> {values.sex || '-'}</p>
-        <p><strong>Age:</strong> {values.age || '-'}</p>
-        <p><strong>Nationality:</strong> {values.nationality}</p>
-        <p><strong>FAN:</strong> {values.fanNumber || 'Not provided'}</p>
-      </ReviewSection>
-
-      <ReviewSection title="Contact" onEdit={() => onEdit(1)}>
-        <p><strong>Phone:</strong> {values.phone}</p>
-        <p><strong>WhatsApp:</strong> {values.phoneIsWhatsApp ? values.phone : values.whatsappNo ? 'No WhatsApp' : values.whatsappNumber || 'Not provided'}</p>
-        <p><strong>Email:</strong> {values.email}</p>
-        <p><strong>Residence:</strong> {values.residenceRegion} / {values.residenceCity} / {values.residenceDetail}</p>
-      </ReviewSection>
-
-      <ReviewSection title="Background" onEdit={() => onEdit(2)}>
-        <p><strong>Profession:</strong> {values.profession}</p>
-        <p><strong>Education:</strong> {values.educationLevel}</p>
-        <p><strong>Emergency:</strong> {values.emergencyName} ({values.emergencyRelationship}) — {values.emergencyPhone}</p>
-      </ReviewSection>
-
-      <ReviewSection title="Languages" onEdit={() => onEdit(2)}>
-        <p>{values.languages.filter((item) => item.selected && item.language.trim()).map((item) => `${item.language} (${item.proficiency})`).join(', ') || '-'}</p>
-      </ReviewSection>
-
-      <ReviewSection title="Sector" onEdit={() => onEdit(3)}>
-        <p><strong>Sector:</strong> {values.sector}</p>
-        <p><strong>Health sub-sectors:</strong> {values.sector === 'Health' ? values.healthSubsectors.join(', ') || '-' : 'Not applicable'}</p>
-      </ReviewSection>
-
-      {photoUrl ? (
-        <ReviewSection title="Photo" onEdit={() => onEdit(1)}>
-          <img src={photoUrl} alt="Uploaded photo" className="h-20 w-20 rounded-full border border-black/20 object-cover" />
-        </ReviewSection>
-      ) : null}
-
-      {serverError ? <div className="rounded-[var(--radius-field)] border border-[#B42318]/40 bg-[#fff1f1] p-3 text-sm font-semibold text-[#8b1c13]">{serverError}</div> : null}
-
-      <GoldButton type="button" onClick={onSubmit} disabled={isSubmitting} aria-busy={isSubmitting}>
-        {isSubmitting ? t('submitting') : t('submit')}
-      </GoldButton>
+      <div>
+        <h2 className="m-0 text-xl font-semibold">{t('step4')}</h2>
+        <p className="mt-1 text-sm text-muted-foreground">This is the volunteer ID that will be used at the event. Check every detail before you submit.</p>
+      </div>
+      <VolunteerIdCard
+        badge={badge}
+        photoUrl={photoUrl}
+        ureportUrl={ureportUrl}
+        onEdit={() => onEdit(1)}
+        onDownload={() => void downloadIdAsImage(badge, photoUrl, ureportUrl)}
+      />
+      {serverError ? <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm font-medium text-destructive">{serverError}</div> : null}
     </div>
   );
 }

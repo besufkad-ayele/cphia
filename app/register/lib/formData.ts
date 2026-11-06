@@ -4,7 +4,14 @@ import type { RegistrationSubmissionPayload } from '../schema';
 export function buildRegistrationFormData(
   payload: RegistrationSubmissionPayload,
   photo: StoredPhoto | null,
-  extras?: { deviceTokenHash?: string; deviceFingerprintHash?: string },
+  extras?: {
+    deviceTokenHash?: string;
+    deviceFingerprintHash?: string;
+    ureportScreenshot?: StoredPhoto | null;
+    fanPhoto?: StoredPhoto | null;
+    secondIdPhoto?: StoredPhoto | null;
+    bankOwnerIdPhoto?: StoredPhoto | null;
+  },
 ): FormData {
   const keys: { [K in keyof RegistrationSubmissionPayload]: true } = {
     agree: true,
@@ -19,6 +26,7 @@ export function buildRegistrationFormData(
     secondIdType: true,
     secondIdNumber: true,
     phone: true,
+    secondaryPhone: true,
     phoneIsWhatsApp: true,
     whatsappNumber: true,
     whatsappNo: true,
@@ -35,6 +43,11 @@ export function buildRegistrationFormData(
     languages: true,
     sector: true,
     healthSubsectors: true,
+    bankName: true,
+    bankAccountName: true,
+    bankAccountNumber: true,
+    bankAccountOtherOwner: true,
+    ureportRegistered: true,
     uiLanguage: true,
     idempotencyKey: true,
   };
@@ -53,6 +66,7 @@ export function buildRegistrationFormData(
   formData.append('secondIdType', payload.secondIdType);
   formData.append('secondIdNumber', payload.secondIdNumber);
   formData.append('phone', payload.phone);
+  formData.append('secondaryPhone', payload.secondaryPhone);
   formData.append('phoneIsWhatsApp', String(payload.phoneIsWhatsApp));
   formData.append('whatsappNumber', payload.whatsappNumber);
   formData.append('whatsappNo', String(payload.whatsappNo));
@@ -68,6 +82,11 @@ export function buildRegistrationFormData(
   formData.append('emergencyRelationship', payload.emergencyRelationship);
   formData.append('sector', payload.sector);
   formData.append('healthSubsectors', JSON.stringify(payload.healthSubsectors));
+  formData.append('bankName', payload.bankName);
+  formData.append('bankAccountName', payload.bankAccountName);
+  formData.append('bankAccountNumber', payload.bankAccountNumber);
+  formData.append('bankAccountOtherOwner', String(payload.bankAccountOtherOwner));
+  formData.append('ureportRegistered', String(payload.ureportRegistered));
   formData.append('languages', JSON.stringify(payload.languages));
   formData.append('uiLanguage', payload.uiLanguage);
   formData.append('idempotencyKey', payload.idempotencyKey);
@@ -80,6 +99,18 @@ export function buildRegistrationFormData(
   }
   if (photo) {
     formData.append('photo', photo.blob, photo.fileName);
+  }
+  if (extras?.ureportScreenshot) {
+    formData.append('ureportScreenshot', extras.ureportScreenshot.blob, extras.ureportScreenshot.fileName);
+  }
+  if (extras?.fanPhoto) {
+    formData.append('fanPhoto', extras.fanPhoto.blob, extras.fanPhoto.fileName);
+  }
+  if (extras?.secondIdPhoto) {
+    formData.append('secondIdPhoto', extras.secondIdPhoto.blob, extras.secondIdPhoto.fileName);
+  }
+  if (extras?.bankOwnerIdPhoto) {
+    formData.append('bankOwnerIdPhoto', extras.bankOwnerIdPhoto.blob, extras.bankOwnerIdPhoto.fileName);
   }
 
   return formData;

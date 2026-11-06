@@ -1,16 +1,16 @@
 "use client";
 
-import { useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { RegisterSkeleton } from '@/components/status/page-skeletons';
+import { VolunteerIdCard } from '@/components/register/volunteer-id-card';
 import {
   AppShell,
   ConfirmDialog,
   ErrorSummary,
   GlassCard,
-  GoldButton,
-  IdCard,
   StepFooter,
   Stepper,
   SubmitOverlay,
@@ -19,27 +19,29 @@ import { ethiopianLanguages, unOfficialLanguages } from './constants';
 import { RegisterIntlProvider, getRegisterTranslations, type AppLocale } from './i18n';
 import { downloadIdAsImage } from './lib/canvasDownload';
 import { buildRegistrationFormData } from './lib/formData';
+import { readStoredBadge, storeBadge } from './lib/badge';
 import { registerFormSchema, toSubmissionPayload } from './schema';
 import { BackgroundStep, ConsentStep, PersonalStep, ReviewStep, SectorStep } from './steps';
+import { badgeFromForm } from './steps/ReviewStep';
 import { useDraft, SESSION_KEY, STORAGE_KEY, SUBMITTED_KEY } from './hooks/useDraft';
 import { useStepValidation } from './hooks/useStepValidation';
-import type { LanguageRow, RegisterFormValues } from './types';
+import type { LanguageRow, RegisterFormValues, StoredPhoto } from './types';
 
 function createLanguageRows(): LanguageRow[] {
   return [
-    ...ethiopianLanguages.map((language) => ({
-      id: crypto.randomUUID(),
-      group: 'ethiopian' as const,
-      language,
-      selected: false,
-      proficiency: 'Basic' as const,
-    })),
     ...unOfficialLanguages.map((language) => ({
       id: crypto.randomUUID(),
       group: 'un' as const,
       language,
       selected: false,
       proficiency: 'Basic' as const,
+    })),
+    ...ethiopianLanguages.map((language) => ({
+      id: crypto.randomUUID(),
+      group: 'ethiopian' as const,
+      language,
+      selected: language === 'Amharic',
+      proficiency: (language === 'Amharic' ? 'Native' : 'Basic') as LanguageRow['proficiency'],
     })),
   ];
 }
@@ -58,11 +60,12 @@ const defaultValues: RegisterFormValues = {
   fullNameAmharic: '',
   sex: '',
   age: '',
-  nationality: '',
+  nationality: 'Ethiopian',
   fanNumber: '',
   secondIdType: '',
   secondIdNumber: '',
   phone: '+251',
+  secondaryPhone: '',
   phoneIsWhatsApp: null,
   whatsappNumber: '',
   whatsappNo: false,
@@ -79,6 +82,11 @@ const defaultValues: RegisterFormValues = {
   languages: createLanguageRows(),
   sector: '',
   healthSubsectors: [],
+  bankName: '',
+  bankAccountName: '',
+  bankAccountNumber: '',
+  bankAccountOtherOwner: false,
+  ureportRegistered: null,
   uiLanguage: 'en',
 };
 
@@ -94,10 +102,11 @@ function RegisterScreen() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
+  const [fanPhotoError, setFanPhotoError] = useState<string | null>(null);
+  const [secondIdPhotoError, setSecondIdPhotoError] = useState<string | null>(null);
+  const [ureportError, setUreportError] = useState<string | null>(null);
+  const [bankOwnerPhotoError, setBankOwnerPhotoError] = useState<string | null>(null);
   const [showSecondId, setShowSecondId] = useState(false);
-
-  const takePhotoRef = useRef<HTMLInputElement | null>(null);
-  const choosePhotoRef = useRef<HTMLInputElement | null>(null);
 
   const form = useForm<RegisterFormValues>({
     mode: 'onChange',
@@ -105,51 +114,119 @@ function RegisterScreen() {
     defaultValues,
   });
 
-  const { hydrated, submittedId, setSubmittedId, photo, photoUrl, setDraftPhoto } = useDraft(form);
+  const {
+    hydrated,
+    submittedId,
+    setSubmittedId,
+    submittedEmailSent,
+    setSubmittedEmailSent,
+    photo,
+    photoUrl,
+    setDraftPhoto,
+    ureportPhoto,
+    ureportUrl,
+    setUreportPhoto,
+    fanPhoto,
+    fanPhotoUrl,
+    setFanPhoto,
+    secondIdPhoto,
+    secondIdPhotoUrl,
+    setSecondIdPhoto,
+    bankOwnerPhoto,
+    bankOwnerPhotoUrl,
+    setBankOwnerPhoto,
+  } = useDraft(form);
   const { triggerStep, errorSummary } = useStepValidation(form);
   const t = getRegisterTranslations(locale);
   const values = form.watch();
   const StepComponent = STEPS[Math.max(step, 0)];
+
+  useLayoutEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, [step]);
 
   const setLocaleAndForm = (nextLocale: AppLocale) => {
     setLocale(nextLocale);
     form.setValue('uiLanguage', nextLocale);
   };
 
-  const uploadPhoto = async (file: File | null) => {
-    setPhotoError(null);
-    if (!file) return;
+  useEffect(() => {
+    if (!hydrated) return;
+    const current = form.getValues('languages');
+    const missing = unOfficialLanguages.filter(
+      (language) => !current.some((row) => row.group === 'un' && row.language === language),
+    );
+    if (!missing.length) return;
+    form.setValue('languages', [
+      ...current,
+      ...missing.map((language) => ({
+        id: crypto.randomUUID(),
+        group: 'un' as const,
+        language,
+        selected: false,
+        proficiency: 'Basic' as const,
+      })),
+    ]);
+  }, [form, hydrated]);
 
+  const compressImage = async (file: File) => {
+    const { default: imageCompression } = await import('browser-image-compression');
+    return imageCompression(file, {
+      maxSizeMB: 0.3,
+      maxWidthOrHeight: 1200,
+      initialQuality: 0.8,
+      useWebWorker: true,
+    });
+  };
+
+  const saveImage = async (
+    file: File | null,
+    setter: (photo: StoredPhoto) => Promise<void>,
+    setError: (message: string | null) => void,
+    label: string,
+  ) => {
+    setError(null);
+    if (!file) return;
     if (file.size > 10_000_000) {
-      if (takePhotoRef.current) takePhotoRef.current.value = '';
-      if (choosePhotoRef.current) choosePhotoRef.current.value = '';
-      setPhotoError('Photo must be under 10 MB. Please choose a smaller image.');
+      setError(`${label} must be under 10 MB.`);
       return;
     }
-
     try {
-      const { default: imageCompression } = await import('browser-image-compression');
-      const compressed = await imageCompression(file, {
-        maxSizeMB: 0.3,
-        maxWidthOrHeight: 1200,
-        initialQuality: 0.8,
-        useWebWorker: true,
-      });
-
-      await setDraftPhoto({
+      const compressed = await compressImage(file);
+      await setter({
         fileName: compressed.name,
         blob: compressed,
         size: compressed.size,
         type: compressed.type,
       });
     } catch {
-      setPhotoError('Photo could not be processed. Please try another image.');
+      setError(`${label} could not be processed. Please try another image.`);
     }
   };
 
   const nextStep = async () => {
     const valid = await triggerStep(step);
     if (!valid) return;
+    if (step === 1 && !photo) {
+      setPhotoError('A professional personal photo is required for the event ID.');
+      return;
+    }
+    if (step === 1 && !fanPhoto) {
+      setFanPhotoError('A photo of your national ID is required.');
+      return;
+    }
+    if (step === 1 && (form.getValues('secondIdType') || form.getValues('secondIdNumber')) && !secondIdPhoto) {
+      setSecondIdPhotoError('Upload a photo of this ID.');
+      return;
+    }
+    if (step === 3 && form.getValues('ureportRegistered') && !ureportPhoto) {
+      setUreportError('Upload your U-Report registration screenshot.');
+      return;
+    }
+    if (step === 3 && form.getValues('bankAccountOtherOwner') && !bankOwnerPhoto) {
+      setBankOwnerPhotoError('Upload a photo of the account owner’s ID.');
+      return;
+    }
     if (step < STEPS.length - 1) setStep(step + 1);
   };
 
@@ -158,11 +235,32 @@ function RegisterScreen() {
     setServerError(null);
 
     try {
+      if (!photo) {
+        setPhotoError('A professional personal photo is required for the event ID.');
+        setIsSubmitting(false);
+        return;
+      }
+      if (!fanPhoto) {
+        setFanPhotoError('A photo of your national ID is required.');
+        setIsSubmitting(false);
+        return;
+      }
+      if (form.getValues('bankAccountOtherOwner') && !bankOwnerPhoto) {
+        setBankOwnerPhotoError('Upload a photo of the account owner’s ID.');
+        setIsSubmitting(false);
+        return;
+      }
       const idempotencyKey = localStorage.getItem(SESSION_KEY) ?? crypto.randomUUID();
       localStorage.setItem(SESSION_KEY, idempotencyKey);
       const submission = toSubmissionPayload(form.getValues(), idempotencyKey);
       const deviceTokenHash = await hashValue(idempotencyKey);
-      const payload = buildRegistrationFormData(submission, photo, { deviceTokenHash });
+      const payload = buildRegistrationFormData(submission, photo, {
+        deviceTokenHash,
+        ureportScreenshot: ureportPhoto,
+        fanPhoto,
+        secondIdPhoto,
+        bankOwnerIdPhoto: bankOwnerPhoto,
+      });
 
       const response = await fetch('/api/register', {
         method: 'POST',
@@ -176,6 +274,12 @@ function RegisterScreen() {
         if (code === 'DUPLICATE_EMAIL') throw new Error(t('duplicateEmail'));
         if (code === 'DUPLICATE_PHONE') throw new Error(t('duplicatePhone'));
         if (code === 'DUPLICATE_FAN') throw new Error(t('duplicateFan'));
+        if (code === 'INVALID_FAN') throw new Error(t('form.fanHint'));
+        if (code === 'PHOTO_REQUIRED') throw new Error('A professional personal photo is required for the event ID.');
+        if (code === 'FAN_PHOTO_REQUIRED') throw new Error('A photo of your national ID is required.');
+        if (code === 'SECOND_ID_PHOTO_REQUIRED') throw new Error('Upload a photo of the additional ID.');
+        if (code === 'UREPORT_SCREENSHOT_REQUIRED') throw new Error('Upload your U-Report screenshot.');
+        if (code === 'BANK_OWNER_ID_REQUIRED') throw new Error('Upload a photo of the account owner’s ID.');
         if (!navigator.onLine) throw new Error(t('offline'));
         throw new Error(t('serverBusy'));
       }
@@ -184,8 +288,11 @@ function RegisterScreen() {
         throw new Error('Registration completed without an ID. Please contact support.');
       }
 
-      localStorage.setItem(SUBMITTED_KEY, JSON.stringify({ registrationId: result.registrationId, at: new Date().toISOString() }));
+      storeBadge(badgeFromForm(form.getValues(), result.registrationId as string));
+      const emailSent = Boolean(result.emailSent);
+      localStorage.setItem(SUBMITTED_KEY, JSON.stringify({ registrationId: result.registrationId, emailSent, at: new Date().toISOString() }));
       localStorage.removeItem(STORAGE_KEY);
+      setSubmittedEmailSent(emailSent);
       setSubmittedId(result.registrationId as string);
       setShowConfirm(false);
     } catch (error) {
@@ -208,19 +315,39 @@ function RegisterScreen() {
   };
 
   if (!hydrated) {
-    return null;
+    return <RegisterSkeleton />;
   }
 
   if (submittedId) {
+    const badge = readStoredBadge() ?? {
+      registrationId: submittedId,
+      name: 'Volunteer',
+      amharicName: '',
+      sex: '',
+      age: '',
+      nationality: '',
+      fanNumber: '',
+      phone: '',
+      sector: '',
+      profession: '',
+      residence: '',
+      languages: '',
+    };
     return (
       <AppShell locale={locale} onLocaleChange={setLocaleAndForm}>
-        <IdCard registrationId={submittedId} title={t('alreadyRegistered')} subtitle={t('emailSent')} />
-        <div className="mx-auto mt-4 flex max-w-xl flex-wrap justify-center gap-3">
-          <GoldButton type="button" onClick={copyId}>{t('copy')}</GoldButton>
-          <button type="button" onClick={() => downloadIdAsImage(submittedId, setServerError)} className="focus-ring min-h-12 rounded-[var(--radius-field)] border border-white/35 px-4 font-bold text-white">{t('saveImage')}</button>
-          <button type="button" onClick={() => void shareId()} className="focus-ring min-h-12 rounded-[var(--radius-field)] border border-white/35 px-4 font-bold text-white">{t('share')}</button>
+        <div className="mx-auto mt-6 max-w-3xl">
+          <VolunteerIdCard
+            badge={{ ...badge, registrationId: submittedId }}
+            photoUrl={photoUrl}
+            ureportUrl={ureportUrl}
+            title={t('alreadyRegistered')}
+            onCopy={copyId}
+            onDownload={() => void downloadIdAsImage({ ...badge, registrationId: submittedId }, photoUrl, ureportUrl, setServerError)}
+            onShare={() => void shareId()}
+          />
+          <p className="mt-3 text-center text-sm text-muted-foreground">{submittedEmailSent ? t('emailSent') : t('emailNotSent')}</p>
         </div>
-        {serverError ? <p className="mx-auto mt-3 max-w-xl text-center text-sm text-[#ffdcdc]">{serverError}</p> : null}
+        {serverError ? <p className="mx-auto mt-3 max-w-xl text-center text-sm text-destructive">{serverError}</p> : null}
       </AppShell>
     );
   }
@@ -244,24 +371,47 @@ function RegisterScreen() {
                 photo={photo}
                 photoUrl={photoUrl}
                 photoError={photoError}
-                showSecondId={showSecondId}
+                fanPhoto={fanPhoto}
+                fanPhotoUrl={fanPhotoUrl}
+                fanPhotoError={fanPhotoError}
+                secondIdPhoto={secondIdPhoto}
+                secondIdPhotoUrl={secondIdPhotoUrl}
+                secondIdPhotoError={secondIdPhotoError}
+                showSecondId={showSecondId || Boolean(values.secondIdType || values.secondIdNumber)}
                 onToggleSecondId={() => setShowSecondId((prev) => !prev)}
-                onTakePhoto={() => takePhotoRef.current?.click()}
-                onChoosePhoto={() => choosePhotoRef.current?.click()}
+                onUploadPhoto={(file) => void saveImage(file, setDraftPhoto, setPhotoError, 'Personal photo')}
                 onRemovePhoto={() => void setDraftPhoto(null)}
-                takePhotoRef={takePhotoRef}
-                choosePhotoRef={choosePhotoRef}
-                onUploadPhoto={(file) => void uploadPhoto(file)}
+                onUploadFanPhoto={(file) => void saveImage(file, setFanPhoto, setFanPhotoError, 'National ID photo')}
+                onRemoveFanPhoto={() => void setFanPhoto(null)}
+                onUploadSecondIdPhoto={(file) => void saveImage(file, setSecondIdPhoto, setSecondIdPhotoError, 'ID photo')}
+                onRemoveSecondIdPhoto={() => void setSecondIdPhoto(null)}
               />
             ) : null}
 
             {StepComponent === BackgroundStep ? <BackgroundStep form={form} /> : null}
-            {StepComponent === SectorStep ? <SectorStep form={form} /> : null}
+            {StepComponent === SectorStep ? (
+              <SectorStep
+                form={form}
+                ureportUrl={ureportUrl}
+                ureportError={ureportError}
+                onUploadUreport={(file) => void saveImage(file, setUreportPhoto, setUreportError, 'U-Report screenshot')}
+                onRemoveUreport={() => void setUreportPhoto(null)}
+                bankOwnerPhoto={bankOwnerPhoto}
+                bankOwnerPhotoUrl={bankOwnerPhotoUrl}
+                bankOwnerPhotoError={bankOwnerPhotoError}
+                onUploadBankOwnerPhoto={(file) => void saveImage(file, setBankOwnerPhoto, setBankOwnerPhotoError, 'Account owner ID')}
+                onRemoveBankOwnerPhoto={() => {
+                  setBankOwnerPhotoError(null);
+                  void setBankOwnerPhoto(null);
+                }}
+              />
+            ) : null}
 
             {StepComponent === ReviewStep ? (
               <ReviewStep
                 form={form}
                 photoUrl={photoUrl}
+                ureportUrl={ureportUrl}
                 serverError={serverError}
                 isSubmitting={isSubmitting}
                 onEdit={setStep}

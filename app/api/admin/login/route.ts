@@ -1,24 +1,12 @@
-import { timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import {
-  getAdminCredentials,
-  setAdminCookie,
-  signAdminJwt,
-} from '@/app/lib/admin/session';
+import { getSessionSecret, setAdminCookie, signAdminJwt } from '@/app/lib/admin/session';
+import { getSupabaseAdmin } from '@/app/lib/supabase/server';
 
 export const runtime = 'nodejs';
 
-function safeEqual(left: string, right: string) {
-  const a = Buffer.from(left);
-  const b = Buffer.from(right);
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
-}
-
 export async function POST(request: NextRequest) {
-  const credentials = getAdminCredentials();
-  if (!credentials) {
+  if (!getSessionSecret()) {
     return NextResponse.json({ error: 'MISCONFIGURED' }, { status: 500 });
   }
 
@@ -26,12 +14,41 @@ export async function POST(request: NextRequest) {
   const email = String(formData.get('email') ?? '').trim().toLowerCase();
   const password = String(formData.get('password') ?? '');
 
-  if (!safeEqual(email, credentials.email) || !safeEqual(password, credentials.password)) {
+  if (!email || !password) {
     return NextResponse.json({ error: 'INVALID_CREDENTIALS' }, { status: 401 });
   }
 
-  const token = await signAdminJwt(email);
-  const response = NextResponse.json({ ok: true });
-  setAdminCookie(response, token);
-  return response;
+  try {
+    const supabase = getSupabaseAdmin();
+    const { data, error } = await supabase.rpc('verify_admin_login', {
+      p_email: email,
+      p_password: password,
+    });
+
+    if (error) {
+      console.error('admin_login_rpc_error', error);
+      return NextResponse.json({ error: 'INVALID_CREDENTIALS' }, { status: 401 });
+    }
+
+    const admin = Array.isArray(data) ? data[0] : data;
+    if (!admin?.id || admin.status !== 'active') {
+      return NextResponse.json({ error: 'INVALID_CREDENTIALS' }, { status: 401 });
+    }
+
+    const token = await signAdminJwt({
+      id: admin.id,
+      email: admin.email,
+      role: admin.role === 'super_admin' ? 'super_admin' : 'admin',
+      fullName: admin.full_name || 'Admin',
+    });
+    const response = NextResponse.json({
+      ok: true,
+      admin: { email: admin.email, role: admin.role, fullName: admin.full_name },
+    });
+    setAdminCookie(response, token);
+    return response;
+  } catch (error) {
+    console.error('admin_login_error', error);
+    return NextResponse.json({ error: 'INVALID_CREDENTIALS' }, { status: 401 });
+  }
 }

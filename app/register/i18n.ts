@@ -14,6 +14,13 @@ export const localeLabels: Record<AppLocale, string> = {
   ti: 'ትግርኛ',
 };
 
+export const localeShortLabels: Record<AppLocale, string> = {
+  en: 'EN',
+  am: 'AM',
+  om: 'OM',
+  ti: 'TI',
+};
+
 const localeMessages = { en, am, om, ti } as const;
 
 type RegisterMessages = typeof en.register;

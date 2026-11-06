@@ -5,7 +5,12 @@ import type { NextRequest } from 'next/server';
 export const ADMIN_SESSION_COOKIE = 'cphia_admin_session';
 export const ADMIN_SESSION_MAX_AGE = 28800;
 
-export type AdminSession = { email: string };
+export type AdminSession = {
+  id: string;
+  email: string;
+  role: 'super_admin' | 'admin';
+  fullName: string;
+};
 
 function getJwtSecret() {
   const secret = process.env.ADMIN_SESSION_SECRET?.trim();
@@ -13,24 +18,21 @@ function getJwtSecret() {
   return new TextEncoder().encode(secret);
 }
 
-export function getAdminCredentials() {
-  const email = process.env.SUPER_ADMIN_EMAIL?.trim().toLowerCase() ?? '';
-  const password = process.env.SUPER_ADMIN_PASSWORD?.trim() ?? '';
-  const secret = process.env.ADMIN_SESSION_SECRET?.trim() ?? '';
-
-  if (!email || !password || !secret) return null;
-  return { email, password, secret };
+export function getSessionSecret() {
+  return process.env.ADMIN_SESSION_SECRET?.trim() || '';
 }
 
-export async function signAdminJwt(email: string): Promise<string> {
+export async function signAdminJwt(admin: AdminSession): Promise<string> {
   const secret = getJwtSecret();
-  if (!secret) {
-    throw new Error('MISSING_ADMIN_SESSION_SECRET');
-  }
+  if (!secret) throw new Error('MISSING_ADMIN_SESSION_SECRET');
 
-  return new SignJWT({})
+  return new SignJWT({
+    email: admin.email,
+    role: admin.role,
+    fullName: admin.fullName,
+  })
     .setProtectedHeader({ alg: 'HS256' })
-    .setSubject(email)
+    .setSubject(admin.id)
     .setIssuedAt()
     .setExpirationTime(`${ADMIN_SESSION_MAX_AGE}s`)
     .sign(secret);
@@ -42,9 +44,12 @@ export async function verifyAdminJwt(token: string | undefined): Promise<AdminSe
 
   try {
     const { payload } = await jwtVerify(token, secret, { algorithms: ['HS256'] });
-    const email = typeof payload.sub === 'string' ? payload.sub.trim().toLowerCase() : '';
-    if (!email) return null;
-    return { email };
+    const id = typeof payload.sub === 'string' ? payload.sub : '';
+    const email = typeof payload.email === 'string' ? payload.email : '';
+    const role = payload.role === 'super_admin' ? 'super_admin' : payload.role === 'admin' ? 'admin' : null;
+    const fullName = typeof payload.fullName === 'string' ? payload.fullName : 'Admin';
+    if (!id || !email || !role) return null;
+    return { id, email, role, fullName };
   } catch {
     return null;
   }

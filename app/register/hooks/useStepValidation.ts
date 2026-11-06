@@ -19,6 +19,7 @@ const stepFieldMap: Record<number, Array<keyof RegisterFormValues>> = {
     'nationality',
     'fanNumber',
     'phone',
+    'secondaryPhone',
     'phoneIsWhatsApp',
     'whatsappNumber',
     'email',
@@ -28,7 +29,7 @@ const stepFieldMap: Record<number, Array<keyof RegisterFormValues>> = {
     'residenceDetail',
   ],
   2: ['profession', 'educationLevel', 'emergencyName', 'emergencyPhone', 'emergencyRelationship', 'languages'],
-  3: ['sector', 'healthSubsectors'],
+  3: ['sector', 'healthSubsectors', 'bankName', 'bankAccountName', 'bankAccountNumber', 'bankAccountOtherOwner', 'ureportRegistered'],
 };
 
 export type SummaryError = { field: string; message: string };
