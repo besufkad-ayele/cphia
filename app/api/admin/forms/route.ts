@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { logActivity } from '@/app/lib/admin/activity';
 import { dbError, requireFeature } from '@/app/lib/admin/guard';
 import { cleanFields, isFormStatus } from '@/app/lib/admin/ops';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
@@ -49,6 +50,15 @@ export async function POST(request: NextRequest) {
       updated_at: new Date().toISOString(),
     }).select('id').single();
     if (error) return dbError(error);
+    await logActivity({
+      actor: gate.session,
+      action: 'form.create',
+      summary: `${gate.session.fullName} created form “${title}”`,
+      entityType: 'form',
+      entityId: data.id,
+      metadata: { title, status },
+      request,
+    });
     return NextResponse.json({ id: data.id });
   } catch (error) {
     return dbError(error as { message?: string });

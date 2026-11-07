@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { logActivity } from '@/app/lib/admin/activity';
 import { dbError, requireFeature } from '@/app/lib/admin/guard';
 import { isCohortStatus } from '@/app/lib/admin/ops';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
@@ -56,6 +57,15 @@ export async function POST(request: NextRequest) {
       if (error.code === '23505') return NextResponse.json({ error: 'DUPLICATE', message: 'That cohort code is already in use.' }, { status: 400 });
       return dbError(error);
     }
+    await logActivity({
+      actor: gate.session,
+      action: 'cohort.create',
+      summary: `${gate.session.fullName} created cohort “${payload.name}” (${payload.code})`,
+      entityType: 'cohort',
+      entityId: data.id,
+      metadata: payload,
+      request,
+    });
     return NextResponse.json({ id: data.id });
   } catch (error) {
     return dbError(error as { message?: string });

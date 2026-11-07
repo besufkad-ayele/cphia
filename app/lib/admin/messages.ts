@@ -20,6 +20,9 @@ export async function adminFetch<T>(input: string, init?: RequestInit): Promise<
       ...init?.headers,
     },
   });
+  if (init?.signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError');
+  }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(errorMessage(payload, 'Request failed.'));
   return payload as T;

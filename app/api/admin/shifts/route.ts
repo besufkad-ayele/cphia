@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { logActivity } from '@/app/lib/admin/activity';
 import { dbError, requireFeature } from '@/app/lib/admin/guard';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
 
@@ -54,6 +55,15 @@ export async function POST(request: NextRequest) {
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase.from('ops_shifts').insert(payload).select('id').single();
     if (error) return dbError(error);
+    await logActivity({
+      actor: gate.session,
+      action: 'shift.create',
+      summary: `${gate.session.fullName} created shift “${payload.name}”`,
+      entityType: 'shift',
+      entityId: data.id,
+      metadata: payload,
+      request,
+    });
     return NextResponse.json({ id: data.id });
   } catch (error) {
     return dbError(error as { message?: string });

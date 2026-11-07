@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { logActivity } from '@/app/lib/admin/activity';
 import { dbError, requireFeature } from '@/app/lib/admin/guard';
 import { cleanFields, isFormStatus } from '@/app/lib/admin/ops';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
@@ -46,6 +47,15 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       updated_at: new Date().toISOString(),
     }).eq('id', id);
     if (error) return dbError(error);
+    await logActivity({
+      actor: gate.session,
+      action: 'form.update',
+      summary: `${gate.session.fullName} updated form “${title}”`,
+      entityType: 'form',
+      entityId: id,
+      metadata: { title, status },
+      request,
+    });
     return NextResponse.json({ ok: true });
   } catch (error) {
     return dbError(error as { message?: string });
@@ -60,6 +70,14 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     const supabase = getSupabaseAdmin();
     const { error } = await supabase.from('ops_forms').delete().eq('id', id);
     if (error) return dbError(error);
+    await logActivity({
+      actor: gate.session,
+      action: 'form.delete',
+      summary: `${gate.session.fullName} deleted a form`,
+      entityType: 'form',
+      entityId: id,
+      request,
+    });
     return NextResponse.json({ ok: true });
   } catch (error) {
     return dbError(error as { message?: string });

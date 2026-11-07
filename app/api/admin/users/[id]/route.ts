@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { logActivity } from '@/app/lib/admin/activity';
 import { dbError, exceedsAccess, requireFeature } from '@/app/lib/admin/guard';
 import { cleanPermissions } from '@/app/lib/admin/permissions';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
@@ -54,6 +55,15 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     });
     if (updateError) return dbError(updateError);
     if (data?.error) return NextResponse.json({ error: data.error }, { status: 400 });
+    await logActivity({
+      actor: gate.session,
+      action: 'user.update',
+      summary: `${gate.session.fullName} updated admin account`,
+      entityType: 'admin',
+      entityId: id,
+      metadata: { roleKey: role.key, status },
+      request,
+    });
     return NextResponse.json({ ok: true });
   } catch (error) {
     return dbError(error as { message?: string });
@@ -77,6 +87,14 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     }
     const { error: deleteError } = await supabase.from('admins').delete().eq('id', id);
     if (deleteError) return dbError(deleteError);
+    await logActivity({
+      actor: gate.session,
+      action: 'user.delete',
+      summary: `${gate.session.fullName} deleted an admin account`,
+      entityType: 'admin',
+      entityId: id,
+      request,
+    });
     return NextResponse.json({ ok: true });
   } catch (error) {
     return dbError(error as { message?: string });

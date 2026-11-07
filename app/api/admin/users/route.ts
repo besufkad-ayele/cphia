@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { logActivity } from '@/app/lib/admin/activity';
 import { dbError, exceedsAccess, requireFeature } from '@/app/lib/admin/guard';
 import { cleanPermissions } from '@/app/lib/admin/permissions';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
@@ -64,6 +65,15 @@ export async function POST(request: NextRequest) {
     });
     if (createError) return dbError(createError);
     if (data?.error) return NextResponse.json({ error: data.error }, { status: 400 });
+    await logActivity({
+      actor: gate.session,
+      action: 'user.create',
+      summary: `${gate.session.fullName} created admin ${fullName} (${email})`,
+      entityType: 'admin',
+      entityId: data?.id,
+      metadata: { email, roleKey: role.key },
+      request,
+    });
     return NextResponse.json({ id: data?.id });
   } catch (error) {
     return dbError(error as { message?: string });

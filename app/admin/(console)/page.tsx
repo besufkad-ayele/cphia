@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { CalendarCheck, CalendarRange, ClipboardList, Clock3, Users } from 'lucide-react';
 import { HEALTH_SUBSECTORS, SECTORS } from '@cphia/shared/constants';
@@ -8,6 +8,7 @@ import type { DemographicsSummary } from '@/app/lib/admin/demographics';
 import type { RegistrationMetrics, RegistrationSummary } from '@/app/lib/admin/types';
 import { adminFetch } from '@/app/lib/admin/messages';
 import { hasFeature } from '@/app/lib/admin/permissions';
+import { useConnectionStatus } from '@/components/admin/connection-status';
 import { DashboardDemographics } from '@/components/admin/dashboard-charts';
 import { StatusBadge } from '@/components/admin/status-badge';
 import { Banner, PageHeader, controlClass } from '@/components/admin/console';
@@ -16,6 +17,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { href } from '@/lib/app-href';
 
 const emptyMetrics: RegistrationMetrics = { total: 0, pending: 0, approved: 0, review: 0, flagged: 0 };
+const POLL_MS = 2000;
+const SLOW_MS = 2000;
 
 type BoardShift = {
   id: string;
@@ -61,18 +64,78 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [sector, setSector] = useState('');
   const [subsector, setSubsector] = useState('');
+  const { setNotice } = useConnectionStatus();
+  const inFlight = useRef(false);
+  const hasDataRef = useRef(false);
 
   useEffect(() => {
-    setLoading(true);
-    const date = new Date().toLocaleDateString('en-CA');
-    const params = new URLSearchParams({ date });
-    if (sector) params.set('sector', sector);
-    if (subsector) params.set('subsector', subsector);
-    adminFetch<Overview>(`/api/admin/overview?${params}`)
-      .then(setData)
-      .catch((reason: Error) => setError(reason.message))
-      .finally(() => setLoading(false));
-  }, [sector, subsector]);
+    let cancelled = false;
+    let controller: AbortController | null = null;
+    let slowTimer: ReturnType<typeof setTimeout> | null = null;
+    hasDataRef.current = false;
+
+    async function load(initial: boolean) {
+      if (cancelled || inFlight.current) return;
+      inFlight.current = true;
+      if (initial) setLoading(true);
+
+      controller = new AbortController();
+      const signal = controller.signal;
+
+      if (slowTimer) clearTimeout(slowTimer);
+      slowTimer = setTimeout(() => {
+        if (!cancelled) setNotice('Connection is slow — still syncing dashboard…');
+      }, SLOW_MS);
+
+      const date = new Date().toLocaleDateString('en-CA');
+      const params = new URLSearchParams({ date });
+      if (sector) params.set('sector', sector);
+      if (subsector) params.set('subsector', subsector);
+
+      try {
+        const next = await adminFetch<Overview>(`/api/admin/overview?${params}`, { signal });
+        if (cancelled || signal.aborted) return;
+        hasDataRef.current = true;
+        setData(next);
+        setError(null);
+        setNotice(null);
+      } catch (reason) {
+        if (cancelled || signal.aborted) return;
+        const isAbort =
+          (reason instanceof DOMException && reason.name === 'AbortError') ||
+          (reason instanceof Error && reason.name === 'AbortError');
+        if (isAbort) return;
+        const message = reason instanceof Error ? reason.message : 'Could not sync dashboard.';
+        if (initial || !hasDataRef.current) {
+          setError(message);
+          setNotice(null);
+        } else {
+          // Keep last good data; inform quietly in the top bar (not an error banner).
+          setNotice('Sync delayed — retrying with current numbers on screen.');
+        }
+      } finally {
+        if (slowTimer) {
+          clearTimeout(slowTimer);
+          slowTimer = null;
+        }
+        inFlight.current = false;
+        if (!cancelled && initial) setLoading(false);
+      }
+    }
+
+    void load(true);
+    const timer = window.setInterval(() => {
+      void load(false);
+    }, POLL_MS);
+
+    return () => {
+      cancelled = true;
+      controller?.abort();
+      if (slowTimer) clearTimeout(slowTimer);
+      window.clearInterval(timer);
+      setNotice(null);
+    };
+  }, [sector, subsector, setNotice]);
 
   const metrics = data?.metrics ?? emptyMetrics;
   const session = { role: data?.role || 'admin', permissions: data?.permissions ?? [] };

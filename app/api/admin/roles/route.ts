@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { logActivity } from '@/app/lib/admin/activity';
 import { dbError, exceedsAccess, requireFeature } from '@/app/lib/admin/guard';
 import { cleanPermissions } from '@/app/lib/admin/permissions';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
@@ -41,6 +42,15 @@ export async function POST(request: NextRequest) {
     if ((existing ?? []).some((row) => row.key === key)) key = `${key}_${Date.now().toString(36).slice(-4)}`;
     const { data, error } = await supabase.from('ops_roles').insert({ key, name, description, permissions, is_system: false }).select('id').single();
     if (error) return dbError(error);
+    await logActivity({
+      actor: gate.session,
+      action: 'role.create',
+      summary: `${gate.session.fullName} created role “${name}”`,
+      entityType: 'role',
+      entityId: data.id,
+      metadata: { key, permissions },
+      request,
+    });
     return NextResponse.json({ id: data.id });
   } catch (error) {
     return dbError(error as { message?: string });

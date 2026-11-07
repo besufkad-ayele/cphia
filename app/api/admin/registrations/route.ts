@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { registrationSchema } from '@cphia/shared/schemas';
+import { logActivity } from '@/app/lib/admin/activity';
 import { requireFeature } from '@/app/lib/admin/guard';
 import {
   applyNameSort,
@@ -337,6 +338,16 @@ export async function POST(request: NextRequest) {
         .update({ review_status: reviewStatus, email_status: 'pending' })
         .eq('registration_id', result.registrationId);
     }
+
+    await logActivity({
+      actor: gate.session,
+      action: 'volunteer.create',
+      summary: `${gate.session.fullName} registered ${registration.firstName} ${registration.lastName} (${result.registrationId})`,
+      entityType: 'registration',
+      entityId: result.id || result.registrationId,
+      metadata: { registrationId: result.registrationId, reviewStatus, sector: registration.sector },
+      request,
+    });
 
     return NextResponse.json(
       { registrationId: result.registrationId, id: result.id, status: reviewStatus },

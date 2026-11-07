@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { logActivity } from '@/app/lib/admin/activity';
 import { dbError, requireFeature } from '@/app/lib/admin/guard';
 import { hasFeature } from '@/app/lib/admin/permissions';
 import { isAttendanceStatus, sanitizeSearch } from '@/app/lib/admin/ops';
@@ -126,6 +127,15 @@ export async function POST(request: NextRequest) {
       { onConflict: 'shift_id,registration_id' },
     );
     if (error) return dbError(error);
+    await logActivity({
+      actor: gate.session,
+      action: 'attendance.mark',
+      summary: `${gate.session.fullName} marked attendance as ${status}`,
+      entityType: 'attendance',
+      entityId: registrationId,
+      metadata: { shiftId, registrationId, status, notes },
+      request,
+    });
     return NextResponse.json({ ok: true });
   } catch (error) {
     return dbError(error as { message?: string });

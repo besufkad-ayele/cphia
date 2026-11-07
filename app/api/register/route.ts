@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { registrationSchema } from '@cphia/shared/schemas';
+import { logActivity } from '@/app/lib/admin/activity';
 import { sendRegistrationEmail } from '@/app/lib/email/registration';
 import {
   REGISTER_ERROR_MESSAGES,
@@ -293,6 +294,21 @@ export async function POST(request: NextRequest) {
     if (emailStatusError) {
       console.error('registration_email_status_error', emailStatusError);
     }
+
+    await logActivity({
+      actorName: 'Public registration',
+      actorEmail: registration.email,
+      action: 'registration.submit',
+      summary: `${registration.firstName} ${registration.lastName} submitted a public registration (${result.registrationId})`,
+      entityType: 'registration',
+      entityId: result.registrationId,
+      metadata: {
+        registrationId: result.registrationId,
+        sector: registration.sector,
+        emailSent,
+      },
+      request,
+    });
 
     return NextResponse.json({ registrationId: result.registrationId, emailSent }, { status: 201 });
   } catch (error) {

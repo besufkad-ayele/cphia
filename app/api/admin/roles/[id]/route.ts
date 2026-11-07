@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { logActivity } from '@/app/lib/admin/activity';
 import { dbError, exceedsAccess, requireFeature } from '@/app/lib/admin/guard';
 import { allFeatureKeys, cleanPermissions } from '@/app/lib/admin/permissions';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
@@ -32,6 +33,15 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (role.key !== 'super_admin') {
       await supabase.from('admins').update({ permissions: nextPermissions }).eq('role_key', role.key);
     }
+    await logActivity({
+      actor: gate.session,
+      action: 'role.update',
+      summary: `${gate.session.fullName} updated role “${name}”`,
+      entityType: 'role',
+      entityId: id,
+      metadata: { key: role.key, permissions: nextPermissions },
+      request,
+    });
     return NextResponse.json({ ok: true });
   } catch (error) {
     return dbError(error as { message?: string });
@@ -53,6 +63,14 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     if ((count ?? 0) > 0) return NextResponse.json({ error: 'ROLE_IN_USE' }, { status: 400 });
     const { error: deleteError } = await supabase.from('ops_roles').delete().eq('id', id);
     if (deleteError) return dbError(deleteError);
+    await logActivity({
+      actor: gate.session,
+      action: 'role.delete',
+      summary: `${gate.session.fullName} deleted role “${role.key}”`,
+      entityType: 'role',
+      entityId: id,
+      request,
+    });
     return NextResponse.json({ ok: true });
   } catch (error) {
     return dbError(error as { message?: string });

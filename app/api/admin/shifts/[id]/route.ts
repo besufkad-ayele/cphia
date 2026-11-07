@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { logActivity } from '@/app/lib/admin/activity';
 import { dbError, requireFeature } from '@/app/lib/admin/guard';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
 
@@ -28,6 +29,15 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const supabase = getSupabaseAdmin();
     const { error } = await supabase.from('ops_shifts').update(payload).eq('id', id);
     if (error) return dbError(error);
+    await logActivity({
+      actor: gate.session,
+      action: 'shift.update',
+      summary: `${gate.session.fullName} updated shift “${payload.name}”`,
+      entityType: 'shift',
+      entityId: id,
+      metadata: payload,
+      request,
+    });
     return NextResponse.json({ ok: true });
   } catch (error) {
     return dbError(error as { message?: string });
@@ -42,6 +52,14 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     const supabase = getSupabaseAdmin();
     const { error } = await supabase.from('ops_shifts').delete().eq('id', id);
     if (error) return dbError(error);
+    await logActivity({
+      actor: gate.session,
+      action: 'shift.delete',
+      summary: `${gate.session.fullName} deleted a shift`,
+      entityType: 'shift',
+      entityId: id,
+      request,
+    });
     return NextResponse.json({ ok: true });
   } catch (error) {
     return dbError(error as { message?: string });

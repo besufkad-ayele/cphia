@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { logActivity } from '@/app/lib/admin/activity';
 import { requireFeature } from '@/app/lib/admin/guard';
 import { deriveAdminStatus, isAdminStatus } from '@/app/lib/admin/status';
 import { extensionForMime, uploadVolunteerPhoto } from '@/app/lib/storage/volunteer-photos';
@@ -341,6 +342,20 @@ export async function PATCH(
     }
   }
 
+  const reviewStatus = typeof updates.review_status === 'string' ? updates.review_status : data.review_status;
+  const changedKeys = Object.keys(updates);
+  await logActivity({
+    actor: gate.session,
+    action: changedKeys.includes('review_status') ? `volunteer.${reviewStatus || 'update'}` : 'volunteer.update',
+    summary: changedKeys.includes('review_status')
+      ? `${gate.session.fullName} set volunteer status to ${reviewStatus}`
+      : `${gate.session.fullName} updated a volunteer record`,
+    entityType: 'registration',
+    entityId: id,
+    metadata: { fields: changedKeys, reviewStatus, languagesUpdated: hasLanguageUpdates },
+    request,
+  });
+
   return NextResponse.json({
     id: data.id,
     status: deriveAdminStatus(data.review_status, data.email_status, data.device_flag),
@@ -361,5 +376,13 @@ export async function DELETE(
     console.error('admin_registration_delete_error', error);
     return NextResponse.json({ error: 'DELETE_FAILED' }, { status: 500 });
   }
+  await logActivity({
+    actor: gate.session,
+    action: 'volunteer.delete',
+    summary: `${gate.session.fullName} deleted a volunteer registration`,
+    entityType: 'registration',
+    entityId: id,
+    request,
+  });
   return NextResponse.json({ ok: true });
 }

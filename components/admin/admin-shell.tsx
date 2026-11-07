@@ -19,6 +19,7 @@ import {
   X,
 } from 'lucide-react';
 import { ADMIN_FEATURES, hasFeature, type FeatureKey } from '@/app/lib/admin/permissions';
+import { ConnectionStatusProvider, useConnectionStatus } from '@/components/admin/connection-status';
 import { Button } from '@/components/ui/button';
 import { href } from '@/lib/app-href';
 import { cn } from '@/lib/utils';
@@ -34,7 +35,7 @@ const ICONS = {
   roles: Shield,
 } as const;
 
-export function AdminShell({
+function AdminShellInner({
   children,
   name,
   role,
@@ -49,6 +50,7 @@ export function AdminShell({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { notice } = useConnectionStatus();
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -164,12 +166,32 @@ export function AdminShell({
       </aside>
 
       <div className={cn('flex min-h-screen flex-col', expanded ? 'md:pl-[280px]' : 'md:pl-[92px]')}>
-        <header className="sticky top-0 z-20 flex items-center justify-between border-b border-white/10 bg-black/55 px-4 py-3 backdrop-blur-xl md:hidden">
-          <button type="button" className="inline-flex items-center gap-2 text-sm font-medium text-white" onClick={() => setMenuOpen(true)}>
-            <Menu className="size-4" />
-            CPHIA desk
-          </button>
-          <Button variant="ghost" size="sm" onClick={() => void signOut()}>Sign out</Button>
+        <header className="sticky top-0 z-20 border-b border-white/10 bg-black/55 backdrop-blur-xl">
+          <div className="flex items-center justify-between gap-3 px-4 py-3">
+            <button
+              type="button"
+              className="inline-flex items-center gap-2 text-sm font-medium text-white md:hidden"
+              onClick={() => setMenuOpen(true)}
+            >
+              <Menu className="size-4" />
+              CPHIA desk
+            </button>
+            <p className="hidden text-sm text-zinc-400 md:block">Volunteer desk</p>
+            <div className="flex min-w-0 flex-1 items-center justify-end gap-3">
+              {notice ? (
+                <p
+                  role="status"
+                  aria-live="polite"
+                  className="truncate rounded-full border border-[#e7c15a]/35 bg-[#e7c15a]/10 px-3 py-1 text-xs text-[#f6e7b2] md:text-sm"
+                >
+                  {notice}
+                </p>
+              ) : null}
+              <Button variant="ghost" size="sm" className="md:hidden" onClick={() => void signOut()}>
+                Sign out
+              </Button>
+            </div>
+          </div>
         </header>
         <main className="flex-1 p-4 md:p-6">{children}</main>
       </div>
@@ -194,5 +216,19 @@ export function AdminShell({
         </div>
       ) : null}
     </div>
+  );
+}
+
+export function AdminShell(props: {
+  children: React.ReactNode;
+  name: string;
+  role: string;
+  roleKey: string;
+  permissions: FeatureKey[] | null;
+}) {
+  return (
+    <ConnectionStatusProvider>
+      <AdminShellInner {...props} />
+    </ConnectionStatusProvider>
   );
 }

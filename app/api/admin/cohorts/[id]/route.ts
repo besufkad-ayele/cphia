@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { logActivity } from '@/app/lib/admin/activity';
 import { dbError, requireFeature } from '@/app/lib/admin/guard';
 import { isCohortStatus } from '@/app/lib/admin/ops';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
@@ -50,6 +51,15 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       if (error.code === '23505') return NextResponse.json({ error: 'DUPLICATE', message: 'That cohort code is already in use.' }, { status: 400 });
       return dbError(error);
     }
+    await logActivity({
+      actor: gate.session,
+      action: 'cohort.update',
+      summary: `${gate.session.fullName} updated cohort “${payload.name}”`,
+      entityType: 'cohort',
+      entityId: id,
+      metadata: payload,
+      request,
+    });
     return NextResponse.json({ ok: true });
   } catch (error) {
     return dbError(error as { message?: string });
@@ -64,6 +74,14 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     const supabase = getSupabaseAdmin();
     const { error } = await supabase.from('ops_cohorts').delete().eq('id', id);
     if (error) return dbError(error);
+    await logActivity({
+      actor: gate.session,
+      action: 'cohort.delete',
+      summary: `${gate.session.fullName} deleted a cohort`,
+      entityType: 'cohort',
+      entityId: id,
+      request,
+    });
     return NextResponse.json({ ok: true });
   } catch (error) {
     return dbError(error as { message?: string });

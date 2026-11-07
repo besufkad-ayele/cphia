@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import ExcelJS from 'exceljs';
+import { logActivity } from '@/app/lib/admin/activity';
 import { requireFeature } from '@/app/lib/admin/guard';
 import {
   applyNameSort,
@@ -66,6 +67,17 @@ export async function GET(request: NextRequest) {
 
   const labels = selected.map((col) => EXPORT_COLUMNS.find((column) => column.id === col)?.label ?? col);
   const stamp = new Date().toISOString().slice(0, 10);
+  const rowCount = data?.length ?? 0;
+
+  await logActivity({
+    actor: gate.session,
+    action: 'export.volunteers',
+    summary: `${gate.session.fullName} exported ${rowCount} volunteer${rowCount === 1 ? '' : 's'} as ${format.toUpperCase()}`,
+    entityType: 'export',
+    entityId: stamp,
+    metadata: { format, rowCount, status, sector, subsector, search: search || null },
+    request,
+  });
 
   if (format === 'xlsx') {
     const workbook = new ExcelJS.Workbook();

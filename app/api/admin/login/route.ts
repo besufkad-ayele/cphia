@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { logActivity } from '@/app/lib/admin/activity';
 import { cleanPermissions, defaultPermissions } from '@/app/lib/admin/permissions';
 import { getSessionSecret, setAdminCookie, signAdminJwt } from '@/app/lib/admin/session';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
@@ -38,13 +39,22 @@ export async function POST(request: NextRequest) {
 
     const role = admin.role === 'super_admin' ? 'super_admin' : 'admin';
     const stored = cleanPermissions(admin.permissions);
-    const token = await signAdminJwt({
+    const session = {
       id: admin.id,
       email: admin.email,
       role,
       fullName: admin.full_name || 'Admin',
       roleKey: typeof admin.role_key === 'string' && admin.role_key ? admin.role_key : role,
       permissions: role === 'super_admin' ? defaultPermissions('super_admin') : stored.length ? stored : defaultPermissions('admin'),
+    } as const;
+    const token = await signAdminJwt(session);
+    await logActivity({
+      actor: session,
+      action: 'auth.login',
+      summary: `${session.fullName} signed in`,
+      entityType: 'admin',
+      entityId: session.id,
+      request,
     });
     const response = NextResponse.json({
       ok: true,

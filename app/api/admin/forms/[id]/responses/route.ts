@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { logActivity } from '@/app/lib/admin/activity';
 import { dbError, requireFeature } from '@/app/lib/admin/guard';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
 
@@ -23,6 +24,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       answers,
     });
     if (error) return dbError(error);
+    await logActivity({
+      actor: gate.session,
+      action: 'form.response',
+      summary: `${gate.session.fullName} recorded a form response for ${volunteerName}`,
+      entityType: 'form',
+      entityId: id,
+      metadata: { volunteerName, registrationId: body.registrationId ?? null },
+      request,
+    });
     return NextResponse.json({ ok: true });
   } catch (error) {
     return dbError(error as { message?: string });
