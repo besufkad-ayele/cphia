@@ -25,7 +25,6 @@ import { BackgroundStep, ConsentStep, PersonalStep, ReviewStep, SectorStep } fro
 import { badgeFromForm } from './steps/ReviewStep';
 import { useDraft, SESSION_KEY, STORAGE_KEY, SUBMITTED_KEY } from './hooks/useDraft';
 import { useStepValidation } from './hooks/useStepValidation';
-import { MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from '@/app/lib/uploads';
 import type { LanguageRow, RegisterFormValues, StoredPhoto } from './types';
 
 function createLanguageRows(): LanguageRow[] {
@@ -174,19 +173,6 @@ function RegisterScreen() {
     ]);
   }, [form, hydrated]);
 
-  const allowedImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
-  const allowedAttachmentTypes = new Set([...allowedImageTypes, 'application/pdf']);
-
-  const compressImage = async (file: File) => {
-    const { default: imageCompression } = await import('browser-image-compression');
-    return imageCompression(file, {
-      maxSizeMB: 0.3,
-      maxWidthOrHeight: 1200,
-      initialQuality: 0.8,
-      useWebWorker: true,
-    });
-  };
-
   const saveImage = async (
     file: File | null,
     setter: (photo: StoredPhoto) => Promise<void>,
@@ -196,31 +182,18 @@ function RegisterScreen() {
   ) => {
     setError(null);
     if (!file) return;
-    const allowed = options?.imagesOnly ? allowedImageTypes : allowedAttachmentTypes;
-    if (!allowed.has(file.type)) {
-      setError(`${label} must be a JPG, PNG, WEBP${options?.imagesOnly ? '' : ', or PDF'} file.`);
-      return;
-    }
-    if (file.size > MAX_UPLOAD_BYTES) {
-      setError(`${label} is too large (${(file.size / (1024 * 1024)).toFixed(1)} MB). Maximum allowed is ${MAX_UPLOAD_LABEL}.`);
-      return;
-    }
     try {
-      if (file.type === 'application/pdf') {
-        await setter({
-          fileName: file.name,
-          blob: file,
-          size: file.size,
-          type: file.type,
-        });
+      const { prepareUploadFile } = await import('@/app/lib/prepare-upload');
+      const prepared = await prepareUploadFile(file, { imagesOnly: options?.imagesOnly, compress: true });
+      if ('error' in prepared) {
+        setError(`${label}: ${prepared.message}`);
         return;
       }
-      const compressed = await compressImage(file);
       await setter({
-        fileName: compressed.name,
-        blob: compressed,
-        size: compressed.size,
-        type: compressed.type,
+        fileName: prepared.file.name,
+        blob: prepared.file,
+        size: prepared.file.size,
+        type: prepared.mime,
       });
     } catch {
       setError(`${label} could not be processed. Please try another file.`);
@@ -298,32 +271,46 @@ function RegisterScreen() {
         bankOwnerIdPhoto: bankOwnerPhoto,
       });
 
-      const response = await fetch('/api/register', {
-        method: 'POST',
-        body: payload,
-      });
+      let response: Response;
+      try {
+        response = await fetch('/api/register', {
+          method: 'POST',
+          body: payload,
+        });
+      } catch {
+        const { resolveClientRegisterError } = await import('@/app/lib/registration-errors');
+        throw new Error(resolveClientRegisterError({
+          status: 0,
+          online: navigator.onLine,
+          body: null,
+          networkFailure: true,
+        }));
+      }
 
-      const result = await response.json();
+      let result: { error?: string; message?: string; details?: unknown; registrationId?: string; emailSent?: boolean } | null = null;
+      try {
+        result = await response.json();
+      } catch {
+        result = null;
+      }
+
       if (!response.ok) {
+        const { resolveClientRegisterError } = await import('@/app/lib/registration-errors');
         const code = result?.error;
         if (code === 'DUPLICATE_DEVICE') throw new Error(t('duplicateDevice'));
         if (code === 'DUPLICATE_EMAIL') throw new Error(t('duplicateEmail'));
         if (code === 'DUPLICATE_PHONE') throw new Error(t('duplicatePhone'));
         if (code === 'DUPLICATE_FAN') throw new Error(t('duplicateFan'));
         if (code === 'INVALID_FAN') throw new Error(t('form.fanHint'));
-        if (code === 'PHOTO_REQUIRED') throw new Error('A professional personal photo is required for the event ID.');
-        if (code === 'FAN_PHOTO_REQUIRED') throw new Error('A photo of your national ID is required.');
-        if (code === 'SECOND_ID_PHOTO_REQUIRED') throw new Error('Upload a photo of the additional ID.');
-        if (code === 'UREPORT_SCREENSHOT_REQUIRED') throw new Error('Upload your U-Report screenshot.');
-        if (code === 'BANK_OWNER_ID_REQUIRED') throw new Error('Upload a photo of the account owner’s ID.');
-        if (code === 'PHOTO_TOO_LARGE') throw new Error(`A file is too large. Maximum allowed is ${MAX_UPLOAD_LABEL}.`);
-        if (code === 'INVALID_PHOTO') throw new Error('One of the files is not a supported image or PDF.');
-        if (!navigator.onLine) throw new Error(t('offline'));
-        throw new Error(t('serverBusy'));
+        throw new Error(resolveClientRegisterError({
+          status: response.status,
+          online: navigator.onLine,
+          body: result,
+        }));
       }
 
       if (!result?.registrationId) {
-        throw new Error('Registration completed without an ID. Please contact support.');
+        throw new Error('Registration completed without an ID. Please contact support with the time you submitted.');
       }
 
       storeBadge(badgeFromForm(form.getValues(), result.registrationId as string));
@@ -336,7 +323,13 @@ function RegisterScreen() {
       window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
     } catch (error) {
       setShowConfirm(false);
-      setServerError(error instanceof Error ? error.message : t('serverBusy'));
+      setServerError(
+        error instanceof Error && error.message
+          ? error.message
+          : (navigator.onLine
+            ? 'Registration could not be completed. Please try again.'
+            : t('offline')),
+      );
       setStep(4);
       window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
     } finally {

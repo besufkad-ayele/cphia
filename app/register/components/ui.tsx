@@ -393,7 +393,10 @@ export function PhotoUpload({
   required?: boolean;
   variant?: 'portrait' | 'document';
 }) {
-  const isPdf = fileType === 'application/pdf' || photoName?.toLowerCase().endsWith('.pdf');
+  const isPdf =
+    fileType === 'application/pdf'
+    || fileType === 'application/x-pdf'
+    || Boolean(photoName?.toLowerCase().endsWith('.pdf'));
   const frameClass = variant === 'document' ? 'h-20 w-32' : 'h-28 w-20';
 
   return (

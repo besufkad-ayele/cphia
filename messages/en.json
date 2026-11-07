@@ -38,7 +38,7 @@
     "share": "Share",
     "emailSent": "A copy was sent to your email",
     "emailNotSent": "Save this ID on your phone. We could not send an email copy.",
-    "serverBusy": "Server is busy. Please retry in a moment.",
+    "serverBusy": "Registration could not be completed. Please try again. If it keeps failing, contact support.",
     "offline": "No internet connection. Your draft is saved on this device.",
     "duplicateDevice": "This device has already submitted a registration.",
     "duplicateFan": "This FAN number is already registered.",

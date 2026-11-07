@@ -1,54 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { registrationSchema } from '@cphia/shared/schemas';
 import { sendRegistrationEmail } from '@/app/lib/email/registration';
+import {
+  REGISTER_ERROR_MESSAGES,
+  formatInvalidInputMessage,
+  mapRpcFailure,
+  messageForRegisterCode,
+} from '@/app/lib/registration-errors';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
-import { MAX_UPLOAD_BYTES } from '@/app/lib/uploads';
+import { extensionForMime, uploadVolunteerPhoto } from '@/app/lib/storage/volunteer-photos';
 
 export const runtime = 'nodejs';
 
-const MAX_PHOTO_BYTES = MAX_UPLOAD_BYTES;
-const allowedMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf']);
-const portraitMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const DUPLICATE_CODES = new Set(['DUPLICATE_EMAIL', 'DUPLICATE_PHONE', 'DUPLICATE_FAN', 'DUPLICATE_DEVICE', 'DUPLICATE']);
 
-function isJpg(signature: string) {
-  return signature.startsWith('ffd8ff');
-}
-
-function isPng(signature: string) {
-  return signature.startsWith('89504e470d0a1a0a');
-}
-
-function isWebp(signature: string) {
-  return signature.startsWith('52494646') && signature.slice(16, 24).toLowerCase() === '57454250';
-}
-
-function isPdf(signature: string) {
-  return signature.startsWith('25504446');
-}
-
-function fileSignature(bytes: Uint8Array) {
-  return Array.from(bytes.slice(0, 12))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
-function looksLikeImage(bytes: Uint8Array) {
-  const signature = fileSignature(bytes);
-  return isJpg(signature) || isPng(signature) || isWebp(signature);
-}
-
-function looksLikeAllowedFile(bytes: Uint8Array, mimeType: string) {
-  const signature = fileSignature(bytes);
-  if (mimeType === 'application/pdf') return isPdf(signature);
-  return looksLikeImage(bytes);
-}
-
-function extensionForMime(mimeType: string) {
-  if (mimeType === 'application/pdf') return 'pdf';
-  if (mimeType === 'image/png') return 'png';
-  if (mimeType === 'image/webp') return 'webp';
-  return 'jpg';
+function jsonError(error: string, status: number, extra?: Record<string, unknown>) {
+  return NextResponse.json(
+    {
+      error,
+      message: messageForRegisterCode(error),
+      ...extra,
+    },
+    { status },
+  );
 }
 
 async function uploadAttachment(
@@ -56,25 +30,9 @@ async function uploadAttachment(
   objectPath: string,
   options?: { imagesOnly?: boolean },
 ) {
-  if (file.size > MAX_PHOTO_BYTES) return { error: 'PHOTO_TOO_LARGE' as const };
-  const allowed = options?.imagesOnly ? portraitMimeTypes : allowedMimeTypes;
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  if (!allowed.has(file.type) || !looksLikeAllowedFile(bytes, file.type)) {
-    return { error: 'INVALID_PHOTO' as const };
-  }
-  if (options?.imagesOnly && !looksLikeImage(bytes)) {
-    return { error: 'INVALID_PHOTO' as const };
-  }
-  const supabase = getSupabaseAdmin();
-  const { error } = await supabase.storage.from('volunteer-photos').upload(objectPath, bytes, {
-    contentType: file.type,
-    upsert: true,
-  });
-  if (error) {
-    console.error('register_photo_upload_error', error);
-    return { error: 'REGISTRATION_FAILED' as const };
-  }
-  return { path: objectPath };
+  const uploaded = await uploadVolunteerPhoto(file, objectPath, options);
+  if ('error' in uploaded) return { error: uploaded.error };
+  return { path: uploaded.path };
 }
 
 function toRpcPayload(
@@ -139,9 +97,42 @@ function toRpcPayload(
   };
 }
 
+function parseJsonField(raw: FormDataEntryValue, field: string) {
+  try {
+    return { value: JSON.parse(String(raw)) as unknown };
+  } catch {
+    return {
+      error: NextResponse.json(
+        {
+          error: 'INVALID_INPUT',
+          message: `${field} data is damaged. Go back, re-check that section, and try again.`,
+          details: { fieldErrors: { [field]: ['Invalid data. Please re-enter this section.'] } },
+        },
+        { status: 400 },
+      ),
+    };
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData();
+    let formData: FormData;
+    try {
+      formData = await request.formData();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      if (/size|large|limit|413/i.test(message)) {
+        return jsonError('BODY_TOO_LARGE', 413);
+      }
+      return NextResponse.json(
+        {
+          error: 'INVALID_INPUT',
+          message: 'Could not read the submitted form. Please try again with smaller photos if needed.',
+        },
+        { status: 400 },
+      );
+    }
+
     const payload: Record<string, unknown> = {};
 
     for (const [key, value] of formData.entries()) {
@@ -154,7 +145,9 @@ export async function POST(request: NextRequest) {
         || key === 'bankOwnerIdPhoto'
       ) continue;
       if (key === 'languages' || key === 'healthSubsectors') {
-        payload[key] = JSON.parse(String(value));
+        const parsedField = parseJsonField(value, key);
+        if ('error' in parsedField) return parsedField.error;
+        payload[key] = parsedField.value;
         continue;
       }
       if (key === 'agree' || key === 'phoneIsWhatsApp' || key === 'whatsappNo' || key === 'ureportRegistered' || key === 'bankAccountOtherOwner') {
@@ -166,8 +159,13 @@ export async function POST(request: NextRequest) {
 
     const parsed = registrationSchema.safeParse(payload);
     if (!parsed.success) {
+      const details = parsed.error.flatten();
       return NextResponse.json(
-        { error: 'INVALID_INPUT', details: parsed.error.flatten() },
+        {
+          error: 'INVALID_INPUT',
+          message: formatInvalidInputMessage(details),
+          details,
+        },
         { status: 400 },
       );
     }
@@ -183,28 +181,32 @@ export async function POST(request: NextRequest) {
       const file = formData.get(field);
       if (!file || typeof file === 'string') return { error: missingCode };
       const attachment = file as File;
+      if (!attachment.size) return { error: missingCode };
       const extension = extensionForMime(attachment.type);
       return uploadAttachment(attachment, `${registration.idempotencyKey}${suffix}.${extension}`, options);
     }
 
     const uploaded = await requireUpload('photo', '', 'PHOTO_REQUIRED', { imagesOnly: true });
     if ('error' in uploaded) {
-      return NextResponse.json({ error: uploaded.error }, { status: uploaded.error === 'REGISTRATION_FAILED' ? 500 : 400 });
+      const code = String(uploaded.error || 'REGISTRATION_FAILED');
+      return jsonError(code, code === 'UPLOAD_FAILED' ? 502 : 400);
     }
 
     const fanUploaded = await requireUpload('fanPhoto', '-fan', 'FAN_PHOTO_REQUIRED');
     if ('error' in fanUploaded) {
-      return NextResponse.json({ error: fanUploaded.error }, { status: fanUploaded.error === 'REGISTRATION_FAILED' ? 500 : 400 });
+      const code = String(fanUploaded.error || 'REGISTRATION_FAILED');
+      return jsonError(code, code === 'UPLOAD_FAILED' ? 502 : 400);
     }
 
     let fanBackPath: string | null = null;
     const fanBackFile = formData.get('fanPhotoBack');
-    if (fanBackFile && typeof fanBackFile !== 'string') {
+    if (fanBackFile && typeof fanBackFile !== 'string' && (fanBackFile as File).size) {
       const attachment = fanBackFile as File;
       const extension = extensionForMime(attachment.type);
       const fanBackUploaded = await uploadAttachment(attachment, `${registration.idempotencyKey}-fan-back.${extension}`);
       if ('error' in fanBackUploaded) {
-        return NextResponse.json({ error: fanBackUploaded.error }, { status: fanBackUploaded.error === 'REGISTRATION_FAILED' ? 500 : 400 });
+        const code = String(fanBackUploaded.error || 'REGISTRATION_FAILED');
+        return jsonError(code, code === 'UPLOAD_FAILED' ? 502 : 400);
       }
       fanBackPath = fanBackUploaded.path;
     }
@@ -213,7 +215,8 @@ export async function POST(request: NextRequest) {
     if (registration.secondIdType && registration.secondIdNumber) {
       const secondUploaded = await requireUpload('secondIdPhoto', '-second-id', 'SECOND_ID_PHOTO_REQUIRED');
       if ('error' in secondUploaded) {
-        return NextResponse.json({ error: secondUploaded.error }, { status: secondUploaded.error === 'REGISTRATION_FAILED' ? 500 : 400 });
+        const code = String(secondUploaded.error || 'REGISTRATION_FAILED');
+        return jsonError(code, code === 'UPLOAD_FAILED' ? 502 : 400);
       }
       secondIdPath = secondUploaded.path;
     }
@@ -222,7 +225,8 @@ export async function POST(request: NextRequest) {
     if (registration.bankAccountOtherOwner) {
       const ownerUploaded = await requireUpload('bankOwnerIdPhoto', '-bank-owner', 'BANK_OWNER_ID_REQUIRED');
       if ('error' in ownerUploaded) {
-        return NextResponse.json({ error: ownerUploaded.error }, { status: ownerUploaded.error === 'REGISTRATION_FAILED' ? 500 : 400 });
+        const code = String(ownerUploaded.error || 'REGISTRATION_FAILED');
+        return jsonError(code, code === 'UPLOAD_FAILED' ? 502 : 400);
       }
       bankOwnerPath = ownerUploaded.path;
     }
@@ -231,7 +235,8 @@ export async function POST(request: NextRequest) {
     if (registration.ureportRegistered) {
       const ureportUpload = await requireUpload('ureportScreenshot', '-ureport', 'UREPORT_SCREENSHOT_REQUIRED');
       if ('error' in ureportUpload) {
-        return NextResponse.json({ error: ureportUpload.error }, { status: ureportUpload.error === 'REGISTRATION_FAILED' ? 500 : 400 });
+        const code = String(ureportUpload.error || 'REGISTRATION_FAILED');
+        return jsonError(code, code === 'UPLOAD_FAILED' ? 502 : 400);
       }
       ureportPath = ureportUpload.path;
     }
@@ -243,22 +248,34 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       console.error('register_rpc_error', error);
-      return NextResponse.json({ error: 'REGISTRATION_FAILED' }, { status: 500 });
+      const mapped = mapRpcFailure(error);
+      return NextResponse.json(
+        { error: mapped.error, message: mapped.message, details: error.message },
+        { status: mapped.status },
+      );
     }
 
     const result = data as { registrationId?: string; error?: string } | null;
     if (result?.error) {
-      if (result.error === 'INVALID_FAN') {
-        return NextResponse.json({ error: 'INVALID_FAN' }, { status: 400 });
-      }
-      if (DUPLICATE_CODES.has(result.error)) {
-        return NextResponse.json({ error: result.error }, { status: 409 });
-      }
-      return NextResponse.json({ error: 'REGISTRATION_FAILED' }, { status: 500 });
+      if (result.error === 'INVALID_FAN') return jsonError('INVALID_FAN', 400);
+      if (DUPLICATE_CODES.has(result.error)) return jsonError(result.error, 409);
+      return NextResponse.json(
+        {
+          error: result.error,
+          message: messageForRegisterCode(result.error, `Registration failed (${result.error}). Please try again.`),
+        },
+        { status: 400 },
+      );
     }
 
     if (!result?.registrationId) {
-      return NextResponse.json({ error: 'REGISTRATION_FAILED' }, { status: 500 });
+      return NextResponse.json(
+        {
+          error: 'REGISTRATION_FAILED',
+          message: 'Registration saved incompletely and no ID was returned. Please try again or contact support.',
+        },
+        { status: 500 },
+      );
     }
 
     const emailSent = await sendRegistrationEmail({
@@ -280,6 +297,22 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ registrationId: result.registrationId, emailSent }, { status: 201 });
   } catch (error) {
     console.error('register_error', error);
-    return NextResponse.json({ error: 'REGISTRATION_FAILED' }, { status: 500 });
+    const message = error instanceof Error ? error.message : '';
+    if (/FormData|parse|JSON/i.test(message)) {
+      return NextResponse.json(
+        {
+          error: 'INVALID_INPUT',
+          message: 'Could not read the submitted form. Please refresh and try again.',
+        },
+        { status: 400 },
+      );
+    }
+    return NextResponse.json(
+      {
+        error: 'REGISTRATION_FAILED',
+        message: REGISTER_ERROR_MESSAGES.REGISTRATION_FAILED,
+      },
+      { status: 500 },
+    );
   }
 }

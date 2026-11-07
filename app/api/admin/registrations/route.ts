@@ -12,10 +12,22 @@ import {
 } from '@/app/lib/admin/registration-filters';
 import { deriveAdminStatus, isAdminStatus } from '@/app/lib/admin/status';
 import { formatVolunteerName, type RegistrationSummary } from '@/app/lib/admin/types';
+import {
+  formatInvalidInputMessage,
+  mapRpcFailure,
+  messageForRegisterCode,
+} from '@/app/lib/registration-errors';
 import { extensionForMime, uploadVolunteerPhoto } from '@/app/lib/storage/volunteer-photos';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
 
 export const runtime = 'nodejs';
+
+function jsonError(error: string, status: number, extra?: Record<string, unknown>) {
+  return NextResponse.json(
+    { error, message: messageForRegisterCode(error), ...extra },
+    { status },
+  );
+}
 
 type RegistrationRow = {
   id: string;
@@ -168,7 +180,11 @@ export async function POST(request: NextRequest) {
 
     const parsed = registrationSchema.safeParse(payload);
     if (!parsed.success) {
-      return NextResponse.json({ error: 'INVALID_INPUT', details: parsed.error.flatten() }, { status: 400 });
+      const details = parsed.error.flatten();
+      return NextResponse.json(
+        { error: 'INVALID_INPUT', message: formatInvalidInputMessage(details), details },
+        { status: 400 },
+      );
     }
 
     const registration = parsed.data;
@@ -191,12 +207,14 @@ export async function POST(request: NextRequest) {
 
     const uploaded = await requireUpload('photo', '', 'PHOTO_REQUIRED', { imagesOnly: true });
     if ('error' in uploaded) {
-      return NextResponse.json({ error: uploaded.error }, { status: uploaded.error === 'UPLOAD_FAILED' ? 500 : 400 });
+      const code = String(uploaded.error || 'REGISTRATION_FAILED');
+      return jsonError(code, code === 'UPLOAD_FAILED' ? 502 : 400);
     }
 
     const fanUploaded = await requireUpload('fanPhoto', '-fan', 'FAN_PHOTO_REQUIRED');
     if ('error' in fanUploaded) {
-      return NextResponse.json({ error: fanUploaded.error }, { status: fanUploaded.error === 'UPLOAD_FAILED' ? 500 : 400 });
+      const code = String(fanUploaded.error || 'REGISTRATION_FAILED');
+      return jsonError(code, code === 'UPLOAD_FAILED' ? 502 : 400);
     }
 
     let fanBackPath: string | null = null;
@@ -206,7 +224,8 @@ export async function POST(request: NextRequest) {
       const extension = extensionForMime(attachment.type);
       const fanBackUploaded = await uploadVolunteerPhoto(attachment, `admin-new-${registration.idempotencyKey}-fan-back.${extension}`);
       if ('error' in fanBackUploaded) {
-        return NextResponse.json({ error: fanBackUploaded.error }, { status: fanBackUploaded.error === 'UPLOAD_FAILED' ? 500 : 400 });
+        const code = String(fanBackUploaded.error || 'REGISTRATION_FAILED');
+        return jsonError(code, code === 'UPLOAD_FAILED' ? 502 : 400);
       }
       fanBackPath = fanBackUploaded.path;
     }
@@ -215,7 +234,8 @@ export async function POST(request: NextRequest) {
     if (registration.secondIdType && registration.secondIdNumber) {
       const secondUploaded = await requireUpload('secondIdPhoto', '-second-id', 'SECOND_ID_PHOTO_REQUIRED');
       if ('error' in secondUploaded) {
-        return NextResponse.json({ error: secondUploaded.error }, { status: secondUploaded.error === 'UPLOAD_FAILED' ? 500 : 400 });
+        const code = String(secondUploaded.error || 'REGISTRATION_FAILED');
+        return jsonError(code, code === 'UPLOAD_FAILED' ? 502 : 400);
       }
       secondIdPath = secondUploaded.path;
     }
@@ -224,7 +244,8 @@ export async function POST(request: NextRequest) {
     if (registration.bankAccountOtherOwner) {
       const ownerUploaded = await requireUpload('bankOwnerIdPhoto', '-bank-owner', 'BANK_OWNER_ID_REQUIRED');
       if ('error' in ownerUploaded) {
-        return NextResponse.json({ error: ownerUploaded.error }, { status: ownerUploaded.error === 'UPLOAD_FAILED' ? 500 : 400 });
+        const code = String(ownerUploaded.error || 'REGISTRATION_FAILED');
+        return jsonError(code, code === 'UPLOAD_FAILED' ? 502 : 400);
       }
       bankOwnerPath = ownerUploaded.path;
     }
@@ -233,7 +254,8 @@ export async function POST(request: NextRequest) {
     if (registration.ureportRegistered) {
       const ureportUpload = await requireUpload('ureportScreenshot', '-ureport', 'UREPORT_SCREENSHOT_REQUIRED');
       if ('error' in ureportUpload) {
-        return NextResponse.json({ error: ureportUpload.error }, { status: ureportUpload.error === 'UPLOAD_FAILED' ? 500 : 400 });
+        const code = String(ureportUpload.error || 'REGISTRATION_FAILED');
+        return jsonError(code, code === 'UPLOAD_FAILED' ? 502 : 400);
       }
       ureportPath = ureportUpload.path;
     }
@@ -294,15 +316,19 @@ export async function POST(request: NextRequest) {
     const { data, error } = await supabase.rpc('register_volunteer', { payload: rpcPayload });
     if (error) {
       console.error('admin_register_rpc_error', error);
-      return NextResponse.json({ error: 'REGISTRATION_FAILED' }, { status: 500 });
+      const mapped = mapRpcFailure(error);
+      return NextResponse.json(
+        { error: mapped.error, message: mapped.message, details: error.message },
+        { status: mapped.status },
+      );
     }
 
     const result = data as { registrationId?: string; id?: string; error?: string } | null;
     if (result?.error) {
-      return NextResponse.json({ error: result.error }, { status: result.error.startsWith('DUPLICATE') ? 409 : 400 });
+      return jsonError(result.error, result.error.startsWith('DUPLICATE') ? 409 : 400);
     }
     if (!result?.registrationId) {
-      return NextResponse.json({ error: 'REGISTRATION_FAILED' }, { status: 500 });
+      return jsonError('REGISTRATION_FAILED', 500);
     }
 
     if (reviewStatus !== 'pending') {
@@ -318,6 +344,6 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     console.error('admin_register_error', error);
-    return NextResponse.json({ error: 'REGISTRATION_FAILED' }, { status: 500 });
+    return jsonError('REGISTRATION_FAILED', 500);
   }
 }

@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Download, Upload } from 'lucide-react';
 import {
   ALL_BANKS,
@@ -17,7 +17,14 @@ import { toast } from 'sonner';
 import type { AdminStatus } from '@/app/lib/admin/status';
 import { ADMIN_STATUSES } from '@/app/lib/admin/status';
 import { EXPORT_COLUMNS } from '@/app/lib/admin/types';
-import { MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from '@/app/lib/uploads';
+import {
+  DOCUMENT_ACCEPT,
+  IMAGE_ACCEPT,
+  MAX_UPLOAD_BYTES,
+  MAX_UPLOAD_LABEL,
+  isPdfUrl,
+} from '@/app/lib/uploads';
+import { prepareUploadFile } from '@/app/lib/prepare-upload';
 import { StatusBadge } from '@/components/admin/status-badge';
 import { href } from '@/lib/app-href';
 import { buttonVariants } from '@/components/ui/button';
@@ -114,12 +121,12 @@ const FIELD_ROWS: FieldRow[] = [
 ];
 
 const IMAGE_SLOTS = [
-  { key: 'photo', label: 'Volunteer photo', urlKey: 'photoUrl' as const, accept: 'image/jpeg,image/png,image/webp', requiredHint: 'JPG, PNG, or WEBP' },
-  { key: 'fanPhoto', label: 'National ID (front)', urlKey: 'fanPhotoUrl' as const, accept: 'image/jpeg,image/png,image/webp,application/pdf', requiredHint: 'JPG, PNG, WEBP, or PDF' },
-  { key: 'fanPhotoBack', label: 'National ID (back)', urlKey: 'fanPhotoBackUrl' as const, accept: 'image/jpeg,image/png,image/webp,application/pdf', requiredHint: 'JPG, PNG, WEBP, or PDF' },
-  { key: 'secondIdPhoto', label: 'Second ID', urlKey: 'secondIdPhotoUrl' as const, accept: 'image/jpeg,image/png,image/webp,application/pdf', requiredHint: 'JPG, PNG, WEBP, or PDF' },
-  { key: 'bankOwnerIdPhoto', label: 'Account owner ID', urlKey: 'bankOwnerIdPhotoUrl' as const, accept: 'image/jpeg,image/png,image/webp,application/pdf', requiredHint: 'JPG, PNG, WEBP, or PDF' },
-  { key: 'ureportScreenshot', label: 'U-Report screenshot', urlKey: 'ureportUrl' as const, accept: 'image/jpeg,image/png,image/webp,application/pdf', requiredHint: 'JPG, PNG, WEBP, or PDF' },
+  { key: 'photo', label: 'Volunteer photo', urlKey: 'photoUrl' as const, accept: IMAGE_ACCEPT, requiredHint: 'JPG, PNG, WEBP, or HEIC' },
+  { key: 'fanPhoto', label: 'National ID (front)', urlKey: 'fanPhotoUrl' as const, accept: DOCUMENT_ACCEPT, requiredHint: 'JPG, PNG, WEBP, HEIC, or PDF' },
+  { key: 'fanPhotoBack', label: 'National ID (back)', urlKey: 'fanPhotoBackUrl' as const, accept: DOCUMENT_ACCEPT, requiredHint: 'JPG, PNG, WEBP, HEIC, or PDF' },
+  { key: 'secondIdPhoto', label: 'Second ID', urlKey: 'secondIdPhotoUrl' as const, accept: DOCUMENT_ACCEPT, requiredHint: 'JPG, PNG, WEBP, HEIC, or PDF' },
+  { key: 'bankOwnerIdPhoto', label: 'Account owner ID', urlKey: 'bankOwnerIdPhotoUrl' as const, accept: DOCUMENT_ACCEPT, requiredHint: 'JPG, PNG, WEBP, HEIC, or PDF' },
+  { key: 'ureportScreenshot', label: 'U-Report screenshot', urlKey: 'ureportUrl' as const, accept: DOCUMENT_ACCEPT, requiredHint: 'JPG, PNG, WEBP, HEIC, or PDF' },
 ] as const;
 
 function displayValue(value: unknown) {
@@ -179,7 +186,7 @@ function ImageEditor({
   const [localPreview, setLocalPreview] = useState<string | null>(null);
   const [localIsPdf, setLocalIsPdf] = useState(false);
   const preview = localPreview || url;
-  const isPdf = localPreview ? localIsPdf : Boolean(url?.toLowerCase().includes('.pdf'));
+  const isPdf = localPreview ? localIsPdf : isPdfUrl(url);
 
   useEffect(() => {
     return () => {
@@ -206,7 +213,14 @@ function ImageEditor({
       {preview && !isPdf ? (
         <img src={preview} alt={label} className="w-full rounded-lg object-cover" />
       ) : preview ? (
-        <p className="rounded-lg border px-3 py-6 text-center text-sm text-muted-foreground">PDF on file</p>
+        <a
+          href={preview}
+          target="_blank"
+          rel="noreferrer"
+          className="block rounded-lg border px-3 py-6 text-center text-sm text-muted-foreground hover:bg-muted/40"
+        >
+          PDF on file — open
+        </a>
       ) : (
         <p className="text-sm text-muted-foreground">No file</p>
       )}
@@ -241,27 +255,53 @@ function ImageEditor({
             toast.error(`${label} is too large. Maximum allowed is ${MAX_UPLOAD_LABEL}.`);
             return;
           }
-          setLocalPreview((current) => {
-            if (current) URL.revokeObjectURL(current);
-            return URL.createObjectURL(next);
-          });
-          setLocalIsPdf(next.type === 'application/pdf');
-          void onUpload(next).catch(() => {
+          void (async () => {
+            const imagesOnly = !accept.includes('application/pdf');
+            const prepared = await prepareUploadFile(next, { imagesOnly, compress: true });
+            if ('error' in prepared) {
+              toast.error(prepared.message);
+              return;
+            }
             setLocalPreview((current) => {
               if (current) URL.revokeObjectURL(current);
-              return null;
+              return URL.createObjectURL(prepared.file);
             });
-            setLocalIsPdf(false);
-          });
+            setLocalIsPdf(prepared.mime === 'application/pdf');
+            try {
+              await onUpload(prepared.file);
+            } catch {
+              setLocalPreview((current) => {
+                if (current) URL.revokeObjectURL(current);
+                return null;
+              });
+              setLocalIsPdf(false);
+            }
+          })();
         }}
       />
     </div>
   );
 }
 
-export default function VolunteerDetailPage() {
+function safeVolunteersReturn(raw: string | null) {
+  if (!raw) return '/admin/volunteers';
+  try {
+    const decoded = decodeURIComponent(raw);
+    if (decoded.startsWith('/admin/volunteers') && !decoded.startsWith('//')) return decoded;
+  } catch {
+    /* ignore */
+  }
+  return '/admin/volunteers';
+}
+
+function VolunteerDetailPageInner() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const volunteersHref = useMemo(
+    () => href(safeVolunteersReturn(searchParams.get('return'))),
+    [searchParams],
+  );
   const [detail, setDetail] = useState<Detail | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -374,7 +414,7 @@ export default function VolunteerDetailPage() {
       return;
     }
     toast.success('Volunteer deleted.');
-    router.replace(href('/admin/volunteers'));
+    router.replace(volunteersHref);
   }
 
   function exportVolunteer(format: 'csv' | 'xlsx') {
@@ -404,7 +444,7 @@ export default function VolunteerDetailPage() {
         title="This volunteer is not in the cohort"
         description="The registration may have been deleted, or the link may be incomplete. Return to the volunteer list to search again."
       >
-        <Link href={href('/admin/volunteers')} className={cn(buttonVariants(), 'h-11')}>
+        <Link href={volunteersHref} className={cn(buttonVariants(), 'h-11')}>
           Back to volunteers
         </Link>
       </MissingVolunteer>
@@ -417,7 +457,7 @@ export default function VolunteerDetailPage() {
     <div className="grid gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <Link href={href('/admin/volunteers')} className={cn(buttonVariants({ variant: 'ghost' }), 'mb-2 h-9 px-0')}>
+          <Link href={volunteersHref} className={cn(buttonVariants({ variant: 'ghost' }), 'mb-2 h-9 px-0')}>
             Back to volunteers
           </Link>
           <h1 className="text-2xl font-semibold tracking-tight">
@@ -650,5 +690,13 @@ export default function VolunteerDetailPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+export default function VolunteerDetailPage() {
+  return (
+    <Suspense fallback={<Skeleton className="h-96 w-full" />}>
+      <VolunteerDetailPageInner />
+    </Suspense>
   );
 }

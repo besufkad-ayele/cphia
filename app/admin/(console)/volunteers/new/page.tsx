@@ -16,7 +16,13 @@ import {
   UN_LANGUAGES,
 } from '@cphia/shared/constants';
 import { ADMIN_STATUSES } from '@/app/lib/admin/status';
-import { MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from '@/app/lib/uploads';
+import {
+  DOCUMENT_ACCEPT,
+  IMAGE_ACCEPT,
+  MAX_UPLOAD_BYTES,
+  MAX_UPLOAD_LABEL,
+} from '@/app/lib/uploads';
+import { prepareUploadFile } from '@/app/lib/prepare-upload';
 import { href } from '@/lib/app-href';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -86,8 +92,16 @@ function FilePicker({
             toast.error(`${label} is too large. Maximum allowed is ${MAX_UPLOAD_LABEL}.`);
             return;
           }
-          onChange(next);
+          const imagesOnly = !accept.includes('application/pdf');
+          void prepareUploadFile(next, { imagesOnly, compress: false }).then((prepared) => {
+            if ('error' in prepared) {
+              toast.error(prepared.message);
+              return;
+            }
+            onChange(prepared.file);
+          });
         }}
+
       />
     </div>
   );
@@ -241,14 +255,12 @@ export default function AdminRegisterVolunteerPage() {
     setSaving(false);
 
     if (!response.ok) {
-      const code = payload?.error;
-      if (code === 'DUPLICATE_EMAIL') setError('That email is already registered.');
-      else if (code === 'DUPLICATE_FAN') setError('That FAN number is already registered.');
-      else if (code === 'DUPLICATE_PHONE') setError('That phone number is already registered.');
-      else if (code === 'PHOTO_TOO_LARGE') setError(`A file is too large. Maximum allowed is ${MAX_UPLOAD_LABEL}.`);
-      else if (code === 'INVALID_PHOTO') setError('One of the files is not a supported image or PDF.');
-      else if (code === 'INVALID_INPUT') setError('Check the form fields and try again.');
-      else setError(payload?.message || 'Could not register this volunteer.');
+      const { resolveClientRegisterError } = await import('@/app/lib/registration-errors');
+      setError(resolveClientRegisterError({
+        status: response.status,
+        online: navigator.onLine,
+        body: payload,
+      }));
       return;
     }
 
@@ -342,9 +354,9 @@ export default function AdminRegisterVolunteerPage() {
           <CardTitle>Photos & IDs</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4">
-          <FilePicker label="Volunteer photo" hint="JPG, PNG, or WEBP" accept="image/jpeg,image/png,image/webp" required file={photo} onChange={setPhoto} />
-          <FilePicker label="National ID (front)" hint="JPG, PNG, WEBP, or PDF" accept="image/jpeg,image/png,image/webp,application/pdf" required file={fanPhoto} onChange={setFanPhoto} />
-          <FilePicker label="National ID (back, optional)" hint="JPG, PNG, WEBP, or PDF" accept="image/jpeg,image/png,image/webp,application/pdf" file={fanPhotoBack} onChange={setFanPhotoBack} />
+          <FilePicker label="Volunteer photo" hint="JPG, PNG, WEBP, or HEIC" accept={IMAGE_ACCEPT} required file={photo} onChange={setPhoto} />
+          <FilePicker label="National ID (front)" hint="JPG, PNG, WEBP, HEIC, or PDF" accept={DOCUMENT_ACCEPT} required file={fanPhoto} onChange={setFanPhoto} />
+          <FilePicker label="National ID (back, optional)" hint="JPG, PNG, WEBP, HEIC, or PDF" accept={DOCUMENT_ACCEPT} file={fanPhotoBack} onChange={setFanPhotoBack} />
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="grid gap-1.5 text-sm">
               <span>Second ID type</span>
@@ -359,7 +371,7 @@ export default function AdminRegisterVolunteerPage() {
             </label>
           </div>
           {(form.secondIdType || form.secondIdNumber) ? (
-            <FilePicker label="Second ID photo" hint="JPG, PNG, WEBP, or PDF" accept="image/jpeg,image/png,image/webp,application/pdf" required file={secondIdPhoto} onChange={setSecondIdPhoto} />
+            <FilePicker label="Second ID photo" hint="JPG, PNG, WEBP, HEIC, or PDF" accept={DOCUMENT_ACCEPT} required file={secondIdPhoto} onChange={setSecondIdPhoto} />
           ) : null}
         </CardContent>
       </Card>
@@ -521,7 +533,7 @@ export default function AdminRegisterVolunteerPage() {
           </label>
           {form.bankAccountOtherOwner === 'true' ? (
             <div className="sm:col-span-2">
-              <FilePicker label="Account owner ID" hint="JPG, PNG, WEBP, or PDF" accept="image/jpeg,image/png,image/webp,application/pdf" required file={bankOwnerIdPhoto} onChange={setBankOwnerIdPhoto} />
+              <FilePicker label="Account owner ID" hint="JPG, PNG, WEBP, HEIC, or PDF" accept={DOCUMENT_ACCEPT} required file={bankOwnerIdPhoto} onChange={setBankOwnerIdPhoto} />
             </div>
           ) : null}
           <label className="grid gap-1.5 text-sm">
@@ -533,7 +545,7 @@ export default function AdminRegisterVolunteerPage() {
           </label>
           {form.ureportRegistered === 'true' ? (
             <div className="sm:col-span-2">
-              <FilePicker label="U-Report screenshot" hint="JPG, PNG, WEBP, or PDF" accept="image/jpeg,image/png,image/webp,application/pdf" required file={ureportScreenshot} onChange={setUreportScreenshot} />
+              <FilePicker label="U-Report screenshot" hint="JPG, PNG, WEBP, HEIC, or PDF" accept={DOCUMENT_ACCEPT} required file={ureportScreenshot} onChange={setUreportScreenshot} />
             </div>
           ) : null}
         </CardContent>

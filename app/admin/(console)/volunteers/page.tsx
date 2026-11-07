@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Download, Plus, Search } from 'lucide-react';
 import { HEALTH_SUBSECTORS, SECTORS } from '@cphia/shared/constants';
 import { toast } from 'sonner';
@@ -47,11 +47,30 @@ type IndexCache = {
   total: number;
 };
 
+function buildListQuery(values: {
+  status: 'all' | AdminStatus;
+  sector: string;
+  subsector: string;
+  search: string;
+  page: number;
+}) {
+  const params = new URLSearchParams();
+  if (values.status !== 'all') params.set('status', values.status);
+  if (values.sector) params.set('sector', values.sector);
+  if (values.subsector) params.set('subsector', values.subsector);
+  if (values.search.trim()) params.set('q', values.search.trim());
+  if (values.page > 1) params.set('page', String(values.page));
+  return params.toString();
+}
+
 function VolunteersTable() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const initialStatus = searchParams.get('status');
   const initialSector = searchParams.get('sector') ?? '';
   const initialSubsector = searchParams.get('subsector') ?? '';
+  const initialSearch = searchParams.get('q') ?? '';
+  const initialPage = Number(searchParams.get('page') || '1');
   const [index, setIndex] = useState<RegistrationSummary[]>([]);
   const [metrics, setMetrics] = useState<RegistrationMetrics>(emptyMetrics);
   const [status, setStatus] = useState<'all' | AdminStatus>(
@@ -63,8 +82,8 @@ function VolunteersTable() {
   const [subsector, setSubsector] = useState(
     (HEALTH_SUBSECTORS as readonly string[]).includes(initialSubsector) ? initialSubsector : '',
   );
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState(initialSearch);
+  const [page, setPage] = useState(Number.isFinite(initialPage) && initialPage > 0 ? initialPage : 1);
   const [loading, setLoading] = useState(true);
   const [exportOpen, setExportOpen] = useState(false);
   const [selectedColumns, setSelectedColumns] = useState<string[]>(EXPORT_COLUMNS.map((column) => column.id));
@@ -75,6 +94,24 @@ function VolunteersTable() {
     () => JSON.stringify({ status, sector, subsector }),
     [status, sector, subsector],
   );
+
+  const listQuery = useMemo(
+    () => buildListQuery({ status, sector, subsector, search, page }),
+    [status, sector, subsector, search, page],
+  );
+
+  const listHref = listQuery ? `/admin/volunteers?${listQuery}` : '/admin/volunteers';
+
+  function volunteerHref(id: string) {
+    return `/admin/volunteers/${id}?return=${encodeURIComponent(listHref)}`;
+  }
+
+  useEffect(() => {
+    const next = listQuery ? `?${listQuery}` : '';
+    const current = window.location.search;
+    if (current === next) return;
+    router.replace(href(listHref), { scroll: false });
+  }, [listHref, listQuery, router]);
 
   const loadIndex = useCallback(async () => {
     if (cacheRef.current?.key === filterKey) {
@@ -107,7 +144,12 @@ function VolunteersTable() {
     void loadIndex();
   }, [loadIndex]);
 
+  const filtersReady = useRef(false);
   useEffect(() => {
+    if (!filtersReady.current) {
+      filtersReady.current = true;
+      return;
+    }
     setPage(1);
   }, [search, status, sector, subsector]);
 
@@ -118,8 +160,13 @@ function VolunteersTable() {
   }, [index, search]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const rows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const safePage = Math.min(page, pageCount);
+  const rows = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
   const showHealthSubs = sector === 'Health';
+
+  useEffect(() => {
+    if (page !== safePage) setPage(safePage);
+  }, [page, safePage]);
 
   async function setReviewStatus(id: string, action: AdminStatus) {
     const response = await fetch(`/api/admin/registrations/${id}`, {
@@ -282,9 +329,19 @@ function VolunteersTable() {
                     </TableRow>
                   ))
                 : rows.map((row) => (
-                    <TableRow key={row.id}>
+                    <TableRow
+                      key={row.id}
+                      className="cursor-pointer"
+                      onClick={() => router.push(href(volunteerHref(row.id)))}
+                    >
                       <TableCell>
-                        <Link href={href(`/admin/volunteers/${row.id}`)} className="font-medium hover:underline">{row.name}</Link>
+                        <Link
+                          href={href(volunteerHref(row.id))}
+                          className="font-medium hover:underline"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          {row.name}
+                        </Link>
                         <p className="text-xs text-muted-foreground">
                           {[row.firstName && `Name: ${row.firstName}`, row.middleName && `Father: ${row.middleName}`, row.lastName && `Grandfather: ${row.lastName}`]
                             .filter(Boolean)
@@ -306,8 +363,8 @@ function VolunteersTable() {
                       </TableCell>
                       <TableCell><StatusBadge status={row.status} /></TableCell>
                       <TableCell className="text-right">
-                        <div className="flex justify-end gap-1">
-                          <Link href={href(`/admin/volunteers/${row.id}`)} className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}>Open</Link>
+                        <div className="flex justify-end gap-1" onClick={(event) => event.stopPropagation()}>
+                          <Link href={href(volunteerHref(row.id))} className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}>Open</Link>
                           {row.status !== 'approved' ? (
                             <Button size="sm" variant="secondary" onClick={() => void setReviewStatus(row.id, 'approved')}>Approve</Button>
                           ) : null}
@@ -323,12 +380,12 @@ function VolunteersTable() {
           ) : null}
           <div className="mt-4 flex items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">
-              Page {page} of {pageCount} · {filtered.length} shown
+              Page {safePage} of {pageCount} · {filtered.length} shown
               {search.trim() ? ` (filtered from ${index.length})` : ''}
             </p>
             <div className="flex gap-2">
-              <Button variant="outline" className="h-11" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Previous</Button>
-              <Button variant="outline" className="h-11" disabled={page >= pageCount} onClick={() => setPage((value) => value + 1)}>Next</Button>
+              <Button variant="outline" className="h-11" disabled={safePage <= 1} onClick={() => setPage((value) => value - 1)}>Previous</Button>
+              <Button variant="outline" className="h-11" disabled={safePage >= pageCount} onClick={() => setPage((value) => value + 1)}>Next</Button>
             </div>
           </div>
         </CardContent>
