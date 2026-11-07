@@ -1,7 +1,7 @@
 import { SignJWT, jwtVerify } from 'jose';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { cleanPermissions, defaultPermissions, type FeatureKey } from '@/app/lib/admin/permissions';
+import { cleanPermissions, defaultPermissions, type PermissionKey } from '@/app/lib/admin/permissions';
 
 export const ADMIN_SESSION_COOKIE = 'cphia_admin_session';
 export const ADMIN_SESSION_MAX_AGE = 28800;
@@ -12,7 +12,7 @@ export type AdminSession = {
   role: 'super_admin' | 'admin';
   fullName: string;
   roleKey: string;
-  permissions: FeatureKey[];
+  permissions: PermissionKey[];
 };
 
 function getJwtSecret() {

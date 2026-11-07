@@ -1,17 +1,17 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { logActivity } from '@/app/lib/admin/activity';
-import { dbError, requireFeature } from '@/app/lib/admin/guard';
+import { dbError, requireCapability } from '@/app/lib/admin/guard';
+import { isShiftKind } from '@/app/lib/admin/ops';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
 
 export const runtime = 'nodejs';
 
-export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await requireFeature(request, 'shifts');
-  if (!gate.ok) return gate.error;
-  const { id } = await params;
-  const body = await request.json().catch(() => ({}));
-  const payload = {
+function shiftPayload(body: Record<string, unknown>) {
+  const kindRaw = String(body.kind ?? 'training');
+  const kind = isShiftKind(kindRaw) ? kindRaw : 'training';
+  const teamId = body.teamId ? String(body.teamId) : null;
+  return {
     cohort_id: String(body.cohortId ?? ''),
     name: String(body.name ?? '').trim().slice(0, 120),
     shift_date: String(body.date ?? ''),
@@ -21,12 +21,38 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     sector: String(body.sector ?? '').trim().slice(0, 80),
     capacity: Math.max(0, Number(body.capacity) || 0),
     notes: String(body.notes ?? '').trim().slice(0, 1000),
+    kind,
+    team_id: kind === 'ops' ? teamId : null,
   };
+}
+
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const gate = await requireCapability(request, 'shifts.edit');
+  if (!gate.ok) return gate.error;
+  const { id } = await params;
+  const body = await request.json().catch(() => ({}));
+  const payload = shiftPayload(body);
   if (!payload.cohort_id || !payload.name || !payload.shift_date || !payload.start_time || !payload.end_time) {
     return NextResponse.json({ error: 'INVALID' }, { status: 400 });
   }
+  if (payload.kind === 'ops' && !payload.team_id) {
+    return NextResponse.json({ error: 'INVALID', message: 'Ops shifts need a floor team.' }, { status: 400 });
+  }
   try {
     const supabase = getSupabaseAdmin();
+    if (payload.team_id) {
+      const { data: team, error: teamError } = await supabase
+        .from('ops_teams')
+        .select('id, cohort_id')
+        .eq('id', payload.team_id)
+        .maybeSingle();
+      if (teamError) return dbError(teamError);
+      if (!team) return NextResponse.json({ error: 'NOT_FOUND', message: 'Team not found.' }, { status: 404 });
+      if (team.cohort_id !== payload.cohort_id) {
+        return NextResponse.json({ error: 'INVALID', message: 'Team must belong to the same event/cohort.' }, { status: 400 });
+      }
+    }
+
     const { error } = await supabase.from('ops_shifts').update(payload).eq('id', id);
     if (error) return dbError(error);
     await logActivity({
@@ -45,7 +71,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await requireFeature(request, 'shifts');
+  const gate = await requireCapability(request, 'shifts.delete');
   if (!gate.ok) return gate.error;
   const { id } = await params;
   try {

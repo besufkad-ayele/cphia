@@ -202,7 +202,7 @@ export function PersonalStep({
         label={t('form.photo')}
         hint={t('form.photoHint')}
         required
-        variant="portrait"
+        variant="document"
         capture="user"
         photo={photo}
         photoUrl={photoUrl}

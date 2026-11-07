@@ -9,15 +9,21 @@ import { toast } from 'sonner';
 import type { AdminStatus } from '@/app/lib/admin/status';
 import { ADMIN_STATUSES } from '@/app/lib/admin/status';
 import { matchesVolunteerSearch } from '@/app/lib/admin/registration-filters';
+import {
+  canVolunteerManage,
+  canVolunteerUpdate,
+  volunteerAccess,
+} from '@/app/lib/admin/permissions';
 import type { RegistrationMetrics, RegistrationSummary } from '@/app/lib/admin/types';
-import { EXPORT_COLUMNS } from '@/app/lib/admin/types';
+import { EXPORT_ASSET_COLUMNS, EXPORT_COLUMNS } from '@/app/lib/admin/types';
+import { ExportColumnsDialog } from '@/components/admin/export-columns-dialog';
 import { StatusBadge } from '@/components/admin/status-badge';
+import { VolunteerPreviewDialog } from '@/components/admin/volunteer-preview-dialog';
 import { href } from '@/lib/app-href';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -88,7 +94,30 @@ function VolunteersTable() {
   const [exportOpen, setExportOpen] = useState(false);
   const [selectedColumns, setSelectedColumns] = useState<string[]>(EXPORT_COLUMNS.map((column) => column.id));
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const [session, setSession] = useState<{ role: string; permissions: string[] }>({
+    role: 'admin',
+    permissions: [],
+  });
   const cacheRef = useRef<IndexCache | null>(null);
+  const isSuperAdmin = session.role === 'super_admin';
+  const access = volunteerAccess(session);
+  const canUpdate = canVolunteerUpdate(session);
+  const canManage = canVolunteerManage(session);
+  const openFullRecord = access === 'update' || access === 'full';
+
+  useEffect(() => {
+    fetch('/api/admin/me')
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload) => {
+        if (!payload) return;
+        setSession({
+          role: payload.role || 'admin',
+          permissions: Array.isArray(payload.permissions) ? payload.permissions : [],
+        });
+      })
+      .catch(() => null);
+  }, []);
 
   const filterKey = useMemo(
     () => JSON.stringify({ status, sector, subsector }),
@@ -206,6 +235,14 @@ function VolunteersTable() {
     setExportOpen(false);
   }
 
+  function openVolunteer(id: string) {
+    if (openFullRecord) {
+      router.push(href(volunteerHref(id)));
+      return;
+    }
+    setPreviewId(id);
+  }
+
   const filters = useMemo(
     () => [
       { id: 'all' as const, label: `All (${metrics.total})` },
@@ -219,22 +256,36 @@ function VolunteersTable() {
 
   return (
     <div className="grid gap-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+        <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight">Volunteers</h1>
           <p className="text-sm text-muted-foreground">
             Sorted by name · father · grandfather. Search runs instantly on the loaded list.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Link href={href('/admin/volunteers/new')} className={cn(buttonVariants(), 'h-11')}>
-            <Plus className="size-4" />
-            Register volunteer
-          </Link>
-          <Button className="h-11" variant="outline" onClick={() => setExportOpen(true)}>
-            <Download className="size-4" />
-            Export
-          </Button>
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+          {canManage ? (
+            <Link href={href('/admin/volunteers/new')} className={cn(buttonVariants(), 'h-11')}>
+              <Plus className="size-4" />
+              Register volunteer
+            </Link>
+          ) : null}
+          {canManage ? (
+            <Button
+              className="h-11"
+              variant="outline"
+              onClick={() => {
+                setSelectedColumns([
+                  ...EXPORT_COLUMNS.map((column) => column.id),
+                  ...(isSuperAdmin ? EXPORT_ASSET_COLUMNS.map((column) => column.id) : []),
+                ]);
+                setExportOpen(true);
+              }}
+            >
+              <Download className="size-4" />
+              Export
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -289,12 +340,12 @@ function VolunteersTable() {
                 </label>
               ) : null}
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 sm:flex-wrap sm:overflow-visible">
               {filters.map((filter) => (
                 <Button
                   key={filter.id}
                   variant={status === filter.id ? 'default' : 'outline'}
-                  className="h-11"
+                  className="h-11 shrink-0"
                   onClick={() => {
                     setStatus(filter.id);
                     cacheRef.current = null;
@@ -307,74 +358,151 @@ function VolunteersTable() {
           </div>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Volunteer</TableHead>
-                <TableHead>ID</TableHead>
-                <TableHead>Contact</TableHead>
-                <TableHead>FAN</TableHead>
-                <TableHead>Sector</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading
-                ? Array.from({ length: 8 }).map((_, index) => (
-                    <TableRow key={index}>
-                      {Array.from({ length: 7 }).map((__, cell) => (
-                        <TableCell key={cell}><Skeleton className="h-5 w-full" /></TableCell>
-                      ))}
-                    </TableRow>
-                  ))
-                : rows.map((row) => (
-                    <TableRow
-                      key={row.id}
-                      className="cursor-pointer"
-                      onClick={() => router.push(href(volunteerHref(row.id)))}
-                    >
-                      <TableCell>
-                        <Link
-                          href={href(volunteerHref(row.id))}
-                          className="font-medium hover:underline"
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          {row.name}
-                        </Link>
-                        <p className="text-xs text-muted-foreground">
-                          {[row.firstName && `Name: ${row.firstName}`, row.middleName && `Father: ${row.middleName}`, row.lastName && `Grandfather: ${row.lastName}`]
-                            .filter(Boolean)
-                            .join(' · ')}
-                        </p>
-                        <p className="text-xs text-muted-foreground">{row.cohort}</p>
-                      </TableCell>
-                      <TableCell className="font-mono text-xs">{row.registrationId}</TableCell>
-                      <TableCell>
-                        <p>{row.phone}</p>
-                        <p className="text-xs text-muted-foreground">{row.email}</p>
-                      </TableCell>
-                      <TableCell className="font-mono text-xs">{row.fanNumber || '—'}</TableCell>
-                      <TableCell>
-                        <p>{row.sector}</p>
-                        {(row.healthSubsectors?.length ?? 0) > 0 ? (
-                          <p className="text-xs text-muted-foreground">{row.healthSubsectors?.join(', ')}</p>
-                        ) : null}
-                      </TableCell>
-                      <TableCell><StatusBadge status={row.status} /></TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-1" onClick={(event) => event.stopPropagation()}>
-                          <Link href={href(volunteerHref(row.id))} className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}>Open</Link>
-                          {row.status !== 'approved' ? (
-                            <Button size="sm" variant="secondary" onClick={() => void setReviewStatus(row.id, 'approved')}>Approve</Button>
+          {/* Mobile / tablet: 1–2 column cards. Desktop: full table. */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:hidden">
+            {loading
+              ? Array.from({ length: 6 }).map((_, index) => (
+                  <div key={index} className="rounded-2xl border border-white/10 bg-black/25 p-3">
+                    <Skeleton className="h-5 w-2/3" />
+                    <Skeleton className="mt-2 h-4 w-full" />
+                    <Skeleton className="mt-2 h-4 w-1/2" />
+                  </div>
+                ))
+              : rows.map((row) => (
+                  <div
+                    key={row.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openVolunteer(row.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        openVolunteer(row.id);
+                      }
+                    }}
+                    className="grid gap-3 rounded-2xl border border-white/10 bg-black/25 p-3 text-left transition hover:bg-white/5"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-white">{row.name}</p>
+                        <p className="mt-0.5 font-mono text-[11px] text-zinc-400">{row.registrationId}</p>
+                      </div>
+                      <StatusBadge status={row.status} />
+                    </div>
+                    <div className="grid gap-1 text-xs text-zinc-400">
+                      <p className="truncate">{row.phone || '—'}{row.email ? ` · ${row.email}` : ''}</p>
+                      <p className="truncate">
+                        {row.sector}
+                        {(row.healthSubsectors?.length ?? 0) > 0 ? ` · ${row.healthSubsectors?.join(', ')}` : ''}
+                      </p>
+                      <p className="truncate">FAN {row.fanNumber || '—'}{row.cohort ? ` · ${row.cohort}` : ''}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-1" onClick={(event) => event.stopPropagation()}>
+                      {openFullRecord ? (
+                        <Link href={href(volunteerHref(row.id))} className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}>Open</Link>
+                      ) : (
+                        <Button size="sm" variant="outline" onClick={() => openVolunteer(row.id)}>View</Button>
+                      )}
+                      {canUpdate && row.status !== 'approved' ? (
+                        <Button size="sm" variant="secondary" onClick={() => void setReviewStatus(row.id, 'approved')}>Approve</Button>
+                      ) : null}
+                      {canManage ? (
+                        <Button size="sm" variant="ghost" onClick={() => setDeleteId(row.id)}>Delete</Button>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+          </div>
+
+          <div className="hidden lg:block">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Volunteer</TableHead>
+                  <TableHead>ID</TableHead>
+                  <TableHead>Contact</TableHead>
+                  <TableHead>FAN</TableHead>
+                  <TableHead>Sector</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading
+                  ? Array.from({ length: 8 }).map((_, index) => (
+                      <TableRow key={index}>
+                        {Array.from({ length: 7 }).map((__, cell) => (
+                          <TableCell key={cell}><Skeleton className="h-5 w-full" /></TableCell>
+                        ))}
+                      </TableRow>
+                    ))
+                  : rows.map((row) => (
+                      <TableRow
+                        key={row.id}
+                        className="cursor-pointer"
+                        onClick={() => openVolunteer(row.id)}
+                      >
+                        <TableCell>
+                          {openFullRecord ? (
+                            <Link
+                              href={href(volunteerHref(row.id))}
+                              className="font-medium hover:underline"
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              {row.name}
+                            </Link>
+                          ) : (
+                            <button
+                              type="button"
+                              className="text-left font-medium hover:underline"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openVolunteer(row.id);
+                              }}
+                            >
+                              {row.name}
+                            </button>
+                          )}
+                          <p className="text-xs text-muted-foreground">
+                            {[row.firstName && `Name: ${row.firstName}`, row.middleName && `Father: ${row.middleName}`, row.lastName && `Grandfather: ${row.lastName}`]
+                              .filter(Boolean)
+                              .join(' · ')}
+                          </p>
+                          <p className="text-xs text-muted-foreground">{row.cohort}</p>
+                        </TableCell>
+                        <TableCell className="font-mono text-xs">{row.registrationId}</TableCell>
+                        <TableCell>
+                          <p>{row.phone}</p>
+                          <p className="text-xs text-muted-foreground">{row.email}</p>
+                        </TableCell>
+                        <TableCell className="font-mono text-xs">{row.fanNumber || '—'}</TableCell>
+                        <TableCell>
+                          <p>{row.sector}</p>
+                          {(row.healthSubsectors?.length ?? 0) > 0 ? (
+                            <p className="text-xs text-muted-foreground">{row.healthSubsectors?.join(', ')}</p>
                           ) : null}
-                          <Button size="sm" variant="ghost" onClick={() => setDeleteId(row.id)}>Delete</Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-            </TableBody>
-          </Table>
+                        </TableCell>
+                        <TableCell><StatusBadge status={row.status} /></TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1" onClick={(event) => event.stopPropagation()}>
+                            {openFullRecord ? (
+                              <Link href={href(volunteerHref(row.id))} className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}>Open</Link>
+                            ) : (
+                              <Button size="sm" variant="outline" onClick={() => openVolunteer(row.id)}>View</Button>
+                            )}
+                            {canUpdate && row.status !== 'approved' ? (
+                              <Button size="sm" variant="secondary" onClick={() => void setReviewStatus(row.id, 'approved')}>Approve</Button>
+                            ) : null}
+                            {canManage ? (
+                              <Button size="sm" variant="ghost" onClick={() => setDeleteId(row.id)}>Delete</Button>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+              </TableBody>
+            </Table>
+          </div>
           {!loading && rows.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">No volunteers match this search.</p>
           ) : null}
@@ -391,34 +519,32 @@ function VolunteersTable() {
         </CardContent>
       </Card>
 
-      <Dialog open={exportOpen} onOpenChange={setExportOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Export volunteers</DialogTitle>
-            <DialogDescription>Choose columns, then download Excel or CSV. Current search, status, sector, and sub-sector filters apply.</DialogDescription>
-          </DialogHeader>
-          <div className="grid max-h-72 gap-2 overflow-y-auto">
-            {EXPORT_COLUMNS.map((column) => (
-              <label key={column.id} className="flex min-h-10 items-center gap-2 text-sm">
-                <Checkbox
-                  checked={selectedColumns.includes(column.id)}
-                  onCheckedChange={(checked) => {
-                    setSelectedColumns((current) =>
-                      checked ? [...current, column.id] : current.filter((id) => id !== column.id),
-                    );
-                  }}
-                />
-                {column.label}
-              </label>
-            ))}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSelectedColumns(EXPORT_COLUMNS.map((column) => column.id))}>Select all</Button>
-            <Button variant="outline" className="h-11" disabled={!selectedColumns.length} onClick={() => exportFile('csv')}>CSV</Button>
-            <Button className="h-11" disabled={!selectedColumns.length} onClick={() => exportFile('xlsx')}>Excel</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ExportColumnsDialog
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        selectedColumns={selectedColumns}
+        onSelectedColumnsChange={setSelectedColumns}
+        includeAssets={isSuperAdmin}
+        title="Export volunteers"
+        description="Choose columns, then download Excel or CSV. Current search, status, sector, and sub-sector filters apply."
+        onExport={exportFile}
+      />
+
+      <VolunteerPreviewDialog
+        volunteerId={previewId}
+        open={Boolean(previewId)}
+        onOpenChange={(open) => {
+          if (!open) setPreviewId(null);
+        }}
+        onStatusChange={
+          canUpdate
+            ? async (id, action) => {
+                await setReviewStatus(id, action);
+                setPreviewId(null);
+              }
+            : undefined
+        }
+      />
 
       <Dialog open={Boolean(deleteId)} onOpenChange={(open) => { if (!open) setDeleteId(null); }}>
         <DialogContent>

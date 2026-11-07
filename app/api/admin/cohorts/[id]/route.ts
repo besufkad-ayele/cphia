@@ -1,14 +1,14 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { logActivity } from '@/app/lib/admin/activity';
-import { dbError, requireFeature } from '@/app/lib/admin/guard';
+import { dbError, requireCapability } from '@/app/lib/admin/guard';
 import { isCohortStatus } from '@/app/lib/admin/ops';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
 
 export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await requireFeature(request, 'cohorts');
+  const gate = await requireCapability(request, 'cohorts.view');
   if (!gate.ok) return gate.error;
   const { id } = await params;
   try {
@@ -28,7 +28,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await requireFeature(request, 'cohorts');
+  const gate = await requireCapability(request, 'cohorts.edit');
   if (!gate.ok) return gate.error;
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
@@ -67,7 +67,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await requireFeature(request, 'cohorts');
+  const gate = await requireCapability(request, 'cohorts.delete');
   if (!gate.ok) return gate.error;
   const { id } = await params;
   try {

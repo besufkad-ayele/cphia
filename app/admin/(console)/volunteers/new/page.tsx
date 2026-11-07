@@ -18,7 +18,6 @@ import {
 import { ADMIN_STATUSES } from '@/app/lib/admin/status';
 import {
   DOCUMENT_ACCEPT,
-  IMAGE_ACCEPT,
   MAX_UPLOAD_BYTES,
   MAX_UPLOAD_LABEL,
 } from '@/app/lib/uploads';
@@ -354,7 +353,7 @@ export default function AdminRegisterVolunteerPage() {
           <CardTitle>Photos & IDs</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4">
-          <FilePicker label="Volunteer photo" hint="JPG, PNG, WEBP, or HEIC" accept={IMAGE_ACCEPT} required file={photo} onChange={setPhoto} />
+          <FilePicker label="Volunteer photo" hint="JPG, PNG, WEBP, HEIC, or PDF" accept={DOCUMENT_ACCEPT} required file={photo} onChange={setPhoto} />
           <FilePicker label="National ID (front)" hint="JPG, PNG, WEBP, HEIC, or PDF" accept={DOCUMENT_ACCEPT} required file={fanPhoto} onChange={setFanPhoto} />
           <FilePicker label="National ID (back, optional)" hint="JPG, PNG, WEBP, HEIC, or PDF" accept={DOCUMENT_ACCEPT} file={fanPhotoBack} onChange={setFanPhotoBack} />
           <div className="grid gap-3 sm:grid-cols-2">

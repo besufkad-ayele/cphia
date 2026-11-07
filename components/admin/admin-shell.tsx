@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
@@ -13,13 +14,23 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
+  Radio,
   Shield,
   UserPlus,
   Users,
+  UsersRound,
   X,
 } from 'lucide-react';
-import { ADMIN_FEATURES, hasFeature, type FeatureKey } from '@/app/lib/admin/permissions';
+import {
+  ADMIN_FEATURES,
+  MOBILE_DOCK_PRIORITY,
+  hasFeature,
+  type FeatureKey,
+  type PermissionKey,
+} from '@/app/lib/admin/permissions';
+import { AttendanceFlag } from '@/components/admin/attendance-flag';
 import { ConnectionStatusProvider, useConnectionStatus } from '@/components/admin/connection-status';
+import { AdminMobileDock } from '@/components/admin/mobile-dock';
 import { Button } from '@/components/ui/button';
 import { href } from '@/lib/app-href';
 import { cn } from '@/lib/utils';
@@ -27,8 +38,10 @@ import { cn } from '@/lib/utils';
 const ICONS = {
   dashboard: LayoutDashboard,
   volunteers: Users,
+  teams: UsersRound,
   attendance: CalendarCheck,
   shifts: Clock3,
+  floor: Radio,
   cohorts: CalendarRange,
   forms: ClipboardList,
   users: UserPlus,
@@ -46,7 +59,7 @@ function AdminShellInner({
   name: string;
   role: string;
   roleKey: string;
-  permissions: FeatureKey[] | null;
+  permissions: PermissionKey[] | null;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -126,17 +139,30 @@ function AdminShellInner({
           expanded ? 'w-[280px]' : 'w-[92px]',
         )}
       >
-        <div className={cn('flex items-center border-b border-white/10', expanded ? 'justify-between px-4 py-4' : 'justify-center px-3 py-4')}>
+        <div className={cn('flex items-center border-b border-white/10', expanded ? 'justify-between gap-2 px-3 py-3' : 'justify-center px-3 py-4')}>
           {expanded ? (
-            <div>
-              <p className="text-[11px] font-semibold tracking-[0.18em] text-[#e7c15a]">CPHIA 2026</p>
-              <p className="mt-1 text-sm font-medium text-white">Volunteer desk</p>
-            </div>
+            <Link href={href('/admin')} className="min-w-0 flex-1 rounded-xl px-1 py-1 transition hover:bg-white/5" aria-label="CPHIA dashboard">
+              <Image
+                src="/cphia-logo.png"
+                alt="CPHIA"
+                width={200}
+                height={66}
+                className="h-11 w-auto max-w-full object-contain object-left"
+                priority
+              />
+            </Link>
           ) : (
-            <span className="grid size-10 place-items-center rounded-2xl border border-[#e7c15a]/40 bg-[#e7c15a]/10 text-sm font-semibold text-[#e7c15a]">C</span>
+            <Link
+              href={href('/admin')}
+              className="grid size-10 place-items-center rounded-2xl border border-[#e7c15a]/40 bg-[#e7c15a]/10 text-sm font-semibold text-[#e7c15a] transition hover:bg-[#e7c15a]/20"
+              aria-label="CPHIA dashboard"
+              title="Dashboard"
+            >
+              C
+            </Link>
           )}
           {expanded ? (
-            <Button variant="ghost" size="icon" className="text-zinc-300" onClick={toggleExpanded} aria-label="Show icons only">
+            <Button variant="ghost" size="icon" className="shrink-0 text-zinc-300" onClick={toggleExpanded} aria-label="Show icons only">
               <PanelLeftClose />
             </Button>
           ) : null}
@@ -193,18 +219,44 @@ function AdminShellInner({
             </div>
           </div>
         </header>
-        <main className="flex-1 p-4 md:p-6">{children}</main>
+        <main className="flex-1 p-4 pb-28 md:p-6 md:pb-6">{children}</main>
+
+        <AttendanceFlag
+          hidden={!permissions || !hasFeature({ role, permissions }, 'attendance')}
+          active={pathname.startsWith('/admin/attendance')}
+        />
+
+        <AdminMobileDock
+          pathname={pathname}
+          loading={permissions === null}
+          priority={MOBILE_DOCK_PRIORITY}
+          excludeKeys={['attendance']}
+          items={items.map((item) => ({
+            key: item.key,
+            label: item.label,
+            href: item.href,
+            icon: ICONS[item.key],
+          }))}
+          onMore={items.filter((item) => item.key !== 'attendance').length > 4 ? () => setMenuOpen(true) : undefined}
+        />
       </div>
 
       {menuOpen ? (
         <div className="fixed inset-0 z-40 md:hidden">
           <button type="button" className="absolute inset-0 bg-black/70" aria-label="Close menu" onClick={() => setMenuOpen(false)} />
           <div className="absolute inset-y-0 left-0 flex w-[min(100%,320px)] flex-col border-r border-white/10 bg-black/80 p-4 backdrop-blur-2xl">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <p className="text-[11px] font-semibold tracking-[0.18em] text-[#e7c15a]">CPHIA 2026</p>
-                <p className="text-sm text-white">{name}</p>
-              </div>
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <Link href={href('/admin')} className="min-w-0 flex-1" onClick={() => setMenuOpen(false)} aria-label="CPHIA dashboard">
+                <Image
+                  src="/cphia-logo.png"
+                  alt="CPHIA"
+                  width={200}
+                  height={66}
+                  className="h-10 w-auto max-w-full object-contain object-left"
+                  priority
+                />
+                <p className="mt-2 truncate text-sm text-white">{name}</p>
+              </Link>
               <Button variant="ghost" size="icon" onClick={() => setMenuOpen(false)} aria-label="Close menu">
                 <X />
               </Button>
@@ -224,7 +276,7 @@ export function AdminShell(props: {
   name: string;
   role: string;
   roleKey: string;
-  permissions: FeatureKey[] | null;
+  permissions: PermissionKey[] | null;
 }) {
   return (
     <ConnectionStatusProvider>

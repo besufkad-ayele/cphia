@@ -14,18 +14,24 @@ import {
   SECOND_ID_TYPES,
 } from '@cphia/shared/constants';
 import { toast } from 'sonner';
+import {
+  canVolunteerManage,
+  canVolunteerUpdate,
+  volunteerAccess,
+} from '@/app/lib/admin/permissions';
 import type { AdminStatus } from '@/app/lib/admin/status';
 import { ADMIN_STATUSES } from '@/app/lib/admin/status';
-import { EXPORT_COLUMNS } from '@/app/lib/admin/types';
+import { EXPORT_ASSET_COLUMNS, EXPORT_COLUMNS } from '@/app/lib/admin/types';
 import {
   DOCUMENT_ACCEPT,
-  IMAGE_ACCEPT,
   MAX_UPLOAD_BYTES,
   MAX_UPLOAD_LABEL,
   isPdfUrl,
 } from '@/app/lib/uploads';
 import { prepareUploadFile } from '@/app/lib/prepare-upload';
+import { ExportColumnsDialog } from '@/components/admin/export-columns-dialog';
 import { StatusBadge } from '@/components/admin/status-badge';
+import { VolunteerPreviewDialog } from '@/components/admin/volunteer-preview-dialog';
 import { href } from '@/lib/app-href';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -121,7 +127,7 @@ const FIELD_ROWS: FieldRow[] = [
 ];
 
 const IMAGE_SLOTS = [
-  { key: 'photo', label: 'Volunteer photo', urlKey: 'photoUrl' as const, accept: IMAGE_ACCEPT, requiredHint: 'JPG, PNG, WEBP, or HEIC' },
+  { key: 'photo', label: 'Volunteer photo', urlKey: 'photoUrl' as const, accept: DOCUMENT_ACCEPT, requiredHint: 'JPG, PNG, WEBP, HEIC, or PDF' },
   { key: 'fanPhoto', label: 'National ID (front)', urlKey: 'fanPhotoUrl' as const, accept: DOCUMENT_ACCEPT, requiredHint: 'JPG, PNG, WEBP, HEIC, or PDF' },
   { key: 'fanPhotoBack', label: 'National ID (back)', urlKey: 'fanPhotoBackUrl' as const, accept: DOCUMENT_ACCEPT, requiredHint: 'JPG, PNG, WEBP, HEIC, or PDF' },
   { key: 'secondIdPhoto', label: 'Second ID', urlKey: 'secondIdPhotoUrl' as const, accept: DOCUMENT_ACCEPT, requiredHint: 'JPG, PNG, WEBP, HEIC, or PDF' },
@@ -173,6 +179,7 @@ function ImageEditor({
   busy,
   onUpload,
   onRemove,
+  onDownload,
 }: {
   label: string;
   url?: string | null;
@@ -181,6 +188,7 @@ function ImageEditor({
   busy: boolean;
   onUpload: (file: File) => Promise<void>;
   onRemove: () => Promise<void>;
+  onDownload?: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [localPreview, setLocalPreview] = useState<string | null>(null);
@@ -236,6 +244,12 @@ function ImageEditor({
           <Upload className="size-4" />
           {url ? 'Replace' : 'Upload'}
         </Button>
+        {url && onDownload ? (
+          <Button type="button" variant="outline" className="h-10" disabled={busy} onClick={onDownload}>
+            <Download className="size-4" />
+            Download
+          </Button>
+        ) : null}
         {url ? (
           <Button type="button" variant="ghost" className="h-10" disabled={busy} onClick={() => void onRemove()}>
             Remove
@@ -309,6 +323,40 @@ function VolunteerDetailPageInner() {
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [imageBusy, setImageBusy] = useState<Record<string, boolean>>({});
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [selectedColumns, setSelectedColumns] = useState<string[]>([
+    ...EXPORT_COLUMNS.map((column) => column.id),
+    ...EXPORT_ASSET_COLUMNS.map((column) => column.id),
+  ]);
+  const [session, setSession] = useState<{ role: string; permissions: string[] } | null>(null);
+  const [staffPreviewOpen, setStaffPreviewOpen] = useState(false);
+  const isSuperAdmin = session?.role === 'super_admin';
+  const access = session ? volunteerAccess(session) : null;
+  const canUpdate = session ? canVolunteerUpdate(session) : false;
+  const canManage = session ? canVolunteerManage(session) : false;
+  const readOnlyPopup = access === 'read';
+
+  useEffect(() => {
+    fetch('/api/admin/me')
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload) => {
+        if (!payload) {
+          setSession({ role: 'admin', permissions: [] });
+          setStaffPreviewOpen(true);
+          return;
+        }
+        const next = {
+          role: payload.role || 'admin',
+          permissions: Array.isArray(payload.permissions) ? payload.permissions : [],
+        };
+        setSession(next);
+        if (volunteerAccess(next) === 'read') setStaffPreviewOpen(true);
+      })
+      .catch(() => {
+        setSession({ role: 'admin', permissions: [] });
+        setStaffPreviewOpen(true);
+      });
+  }, []);
 
   async function load() {
     setLoading(true);
@@ -418,8 +466,14 @@ function VolunteerDetailPageInner() {
   }
 
   function exportVolunteer(format: 'csv' | 'xlsx') {
-    const columns = EXPORT_COLUMNS.map((column) => column.id).join(',');
-    window.location.assign(`/api/admin/registrations/export?id=${params.id}&columns=${columns}&format=${format}`);
+    const columns = selectedColumns.join(',');
+    window.location.assign(`/api/admin/registrations/export?id=${params.id}&columns=${encodeURIComponent(columns)}&format=${format}`);
+    setExportOpen(false);
+  }
+
+  function downloadAsset(slot?: string) {
+    const query = slot ? `?slot=${encodeURIComponent(slot)}` : '';
+    window.location.assign(`/api/admin/registrations/${params.id}/assets${query}`);
   }
 
   function cancelEdit() {
@@ -428,11 +482,35 @@ function VolunteerDetailPageInner() {
     setDraft(draftFromDetail(detail));
   }
 
-  if (loading) {
+  if (loading || session === null || access === null) {
     return (
       <div className="grid gap-4">
         <Skeleton className="h-10 w-64" />
         <Skeleton className="h-80 w-full" />
+      </div>
+    );
+  }
+
+  if (readOnlyPopup) {
+    return (
+      <div className="grid gap-4">
+        <Link href={volunteersHref} className={cn(buttonVariants({ variant: 'ghost' }), 'h-9 w-fit px-0')}>
+          Back to volunteers
+        </Link>
+        <p className="text-sm text-muted-foreground">
+          This role is read-only for volunteers. Use the popup for the key details.
+        </p>
+        <Button className="h-11 w-fit" onClick={() => setStaffPreviewOpen(true)}>
+          View details
+        </Button>
+        <VolunteerPreviewDialog
+          volunteerId={params.id}
+          open={staffPreviewOpen}
+          onOpenChange={(open) => {
+            setStaffPreviewOpen(open);
+            if (!open) router.replace(volunteersHref);
+          }}
+        />
       </div>
     );
   }
@@ -467,32 +545,55 @@ function VolunteerDetailPageInner() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge status={detail.status} />
-          <Button variant="outline" className="h-11" onClick={() => exportVolunteer('xlsx')}>
-            <Download className="size-4" />
-            Export Excel
-          </Button>
-          <Button variant="outline" className="h-11" onClick={() => exportVolunteer('csv')}>
-            Export CSV
-          </Button>
-          <Button
-            variant="outline"
-            className="h-11"
-            onClick={() => {
-              if (editing) cancelEdit();
-              else setEditing(true);
-            }}
-          >
-            {editing ? 'Cancel edit' : 'Edit'}
-          </Button>
+          {canManage ? (
+            <Button
+              variant="outline"
+              className="h-11"
+              onClick={() => {
+                setSelectedColumns([
+                  ...EXPORT_COLUMNS.map((column) => column.id),
+                  ...(isSuperAdmin ? EXPORT_ASSET_COLUMNS.map((column) => column.id) : []),
+                ]);
+                setExportOpen(true);
+              }}
+            >
+              <Download className="size-4" />
+              Export
+            </Button>
+          ) : null}
+          {isSuperAdmin ? (
+            <Button variant="outline" className="h-11" onClick={() => downloadAsset()}>
+              <Download className="size-4" />
+              Download assets
+            </Button>
+          ) : null}
+          {canUpdate ? (
+            <Button
+              variant="outline"
+              className="h-11"
+              onClick={() => {
+                if (editing) cancelEdit();
+                else setEditing(true);
+              }}
+            >
+              {editing ? 'Cancel edit' : 'Edit'}
+            </Button>
+          ) : null}
           {editing ? (
             <Button className="h-11" disabled={saving} onClick={() => void save()}>
               {saving ? 'Saving…' : 'Save'}
             </Button>
           ) : null}
-          <Button variant="secondary" className="h-11" onClick={() => void setStatus('approved')}>Approve</Button>
-          <Button variant="outline" className="h-11" onClick={() => void setStatus('review')}>Review</Button>
-          <Button variant="outline" className="h-11" onClick={() => void setStatus('flagged')}>Flag</Button>
-          <Button variant="destructive" className="h-11" onClick={() => setDeleteOpen(true)}>Delete</Button>
+          {canUpdate ? (
+            <>
+              <Button variant="secondary" className="h-11" onClick={() => void setStatus('approved')}>Approve</Button>
+              <Button variant="outline" className="h-11" onClick={() => void setStatus('review')}>Review</Button>
+              <Button variant="outline" className="h-11" onClick={() => void setStatus('flagged')}>Flag</Button>
+            </>
+          ) : null}
+          {canManage ? (
+            <Button variant="destructive" className="h-11" onClick={() => setDeleteOpen(true)}>Delete</Button>
+          ) : null}
         </div>
       </div>
 
@@ -561,6 +662,7 @@ function VolunteerDetailPageInner() {
                 accept={slot.accept}
                 hint={slot.requiredHint}
                 busy={Boolean(imageBusy[slot.key])}
+                onDownload={detail[slot.urlKey] ? () => downloadAsset(slot.key) : undefined}
                 onUpload={async (file) => {
                   try {
                     await uploadImage(slot.key, file);
@@ -676,6 +778,17 @@ function VolunteerDetailPageInner() {
           </CardContent>
         </Card>
       </div>
+
+      <ExportColumnsDialog
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        selectedColumns={selectedColumns}
+        onSelectedColumnsChange={setSelectedColumns}
+        includeAssets
+        title="Export this volunteer"
+        description="Choose columns, then download Excel or CSV for this registration."
+        onExport={exportVolunteer}
+      />
 
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <DialogContent>

@@ -46,7 +46,7 @@ const UPDATABLE = [
 ] as const;
 
 const PHOTO_FIELDS = [
-  { formKey: 'photo', column: 'photo_path', suffix: '', imagesOnly: true },
+  { formKey: 'photo', column: 'photo_path', suffix: '', imagesOnly: false },
   { formKey: 'fanPhoto', column: 'fan_photo_path', suffix: '-fan', imagesOnly: false },
   { formKey: 'fanPhotoBack', column: 'fan_photo_back_path', suffix: '-fan-back', imagesOnly: false },
   { formKey: 'secondIdPhoto', column: 'second_id_photo_path', suffix: '-second-id', imagesOnly: false },

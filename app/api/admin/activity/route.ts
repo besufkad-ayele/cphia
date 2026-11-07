@@ -28,6 +28,7 @@ const MODULE_LABELS: Record<string, string> = {
   volunteer: 'Volunteers',
   attendance: 'Attendance',
   shift: 'Shifts',
+  team: 'Floor teams',
   cohort: 'Cohorts / events',
   form: 'Forms',
   user: 'Team accounts',

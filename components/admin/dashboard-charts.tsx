@@ -81,10 +81,18 @@ export function DashboardDemographics({
   data,
   loading,
   total,
+  showGender = true,
+  showGenderBySector = true,
+  showAge = true,
+  showEducation = true,
 }: {
   data: DemographicsSummary | null;
   loading: boolean;
   total: number;
+  showGender?: boolean;
+  showGenderBySector?: boolean;
+  showAge?: boolean;
+  showEducation?: boolean;
 }) {
   const gender = data?.gender ?? [];
   const genderBySector = data?.genderBySector ?? [];
@@ -94,9 +102,13 @@ export function DashboardDemographics({
   const hasAge = (data?.age.withAge ?? 0) > 0;
   const hasEducation = education.some((row) => row.count > 0);
 
+  if (!showGender && !showGenderBySector && !showAge && !showEducation) return null;
+
   return (
     <div className="grid gap-4">
-      <div className="grid gap-4 xl:grid-cols-2">
+      {showGender || showGenderBySector ? (
+      <div className={`grid gap-4 ${showGender && showGenderBySector ? 'xl:grid-cols-2' : ''}`}>
+        {showGender ? (
         <Card>
           <CardHeader>
             <CardTitle>Gender comparison</CardTitle>
@@ -142,7 +154,9 @@ export function DashboardDemographics({
             ) : null}
           </CardContent>
         </Card>
+        ) : null}
 
+        {showGenderBySector ? (
         <Card>
           <CardHeader>
             <CardTitle>Gender by sector</CardTitle>
@@ -176,9 +190,13 @@ export function DashboardDemographics({
             ) : null}
           </CardContent>
         </Card>
+        ) : null}
       </div>
+      ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-2">
+      {showAge || showEducation ? (
+      <div className={`grid gap-4 ${showAge && showEducation ? 'xl:grid-cols-2' : ''}`}>
+        {showAge ? (
         <Card>
           <CardHeader>
             <CardTitle>Age comparison</CardTitle>
@@ -214,7 +232,9 @@ export function DashboardDemographics({
             ) : null}
           </CardContent>
         </Card>
+        ) : null}
 
+        {showEducation ? (
         <Card>
           <CardHeader>
             <CardTitle>Education comparison</CardTitle>
@@ -261,7 +281,9 @@ export function DashboardDemographics({
             ) : null}
           </CardContent>
         </Card>
+        ) : null}
       </div>
+      ) : null}
     </div>
   );
 }

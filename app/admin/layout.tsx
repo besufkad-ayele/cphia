@@ -3,11 +3,11 @@
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { AdminShell } from '@/components/admin/admin-shell';
-import type { FeatureKey } from '@/app/lib/admin/permissions';
+import type { PermissionKey } from '@/app/lib/admin/permissions';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const [admin, setAdmin] = useState<{ fullName: string; role: string; roleKey: string; permissions: FeatureKey[] } | null>(null);
+  const [admin, setAdmin] = useState<{ fullName: string; role: string; roleKey: string; permissions: PermissionKey[] } | null>(null);
 
   useEffect(() => {
     document.documentElement.classList.add('admin-dark');

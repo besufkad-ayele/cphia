@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { logActivity } from '@/app/lib/admin/activity';
-import { dbError, exceedsAccess, requireFeature } from '@/app/lib/admin/guard';
+import { dbError, exceedsAccess, requireCapability } from '@/app/lib/admin/guard';
 import { cleanPermissions } from '@/app/lib/admin/permissions';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
 
@@ -13,7 +13,7 @@ function slug(name: string) {
 }
 
 export async function GET(request: NextRequest) {
-  const gate = await requireFeature(request, 'roles');
+  const gate = await requireCapability(request, 'roles.view');
   if (!gate.ok) return gate.error;
   try {
     const supabase = getSupabaseAdmin();
@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const gate = await requireFeature(request, 'roles');
+  const gate = await requireCapability(request, 'roles.create');
   if (!gate.ok) return gate.error;
   const body = await request.json().catch(() => ({}));
   const name = String(body.name ?? '').trim().slice(0, 80);

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { logActivity } from '@/app/lib/admin/activity';
-import { dbError, requireFeature } from '@/app/lib/admin/guard';
+import { dbError, requireCapability } from '@/app/lib/admin/guard';
 import { isCohortStatus } from '@/app/lib/admin/ops';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
 
@@ -25,7 +25,7 @@ function cohortPayload(body: Record<string, unknown>) {
 }
 
 export async function GET(request: NextRequest) {
-  const gate = await requireFeature(request, 'cohorts');
+  const gate = await requireCapability(request, 'cohorts.view');
   if (!gate.ok) return gate.error;
   try {
     const supabase = getSupabaseAdmin();
@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const gate = await requireFeature(request, 'cohorts');
+  const gate = await requireCapability(request, 'cohorts.create');
   if (!gate.ok) return gate.error;
   const payload = cohortPayload(await request.json().catch(() => ({})));
   if (!payload.name || !payload.code) return NextResponse.json({ error: 'INVALID' }, { status: 400 });

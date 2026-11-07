@@ -1,14 +1,15 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { logActivity } from '@/app/lib/admin/activity';
-import { dbError, exceedsAccess, requireFeature } from '@/app/lib/admin/guard';
+import { dbError, exceedsAccess, requireCapability } from '@/app/lib/admin/guard';
 import { cleanPermissions } from '@/app/lib/admin/permissions';
+import { isAssignableDeskRole } from '@/app/lib/admin/team-scope';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
 
 export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest) {
-  const gate = await requireFeature(request, 'users');
+  const gate = await requireCapability(request, 'users.view');
   if (!gate.ok) return gate.error;
 
   try {
@@ -21,7 +22,10 @@ export async function GET(request: NextRequest) {
     if (roles.error) return dbError(roles.error);
     return NextResponse.json({
       users: data ?? [],
-      roles: (roles.data ?? []).filter((role) => gate.session?.role === 'super_admin' || role.key !== 'super_admin'),
+      roles: (roles.data ?? []).filter((role) => {
+        if (!isAssignableDeskRole(role)) return false;
+        return gate.session?.role === 'super_admin' || role.key !== 'super_admin';
+      }),
     });
   } catch (error) {
     return dbError(error as { message?: string });
@@ -29,7 +33,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const gate = await requireFeature(request, 'users');
+  const gate = await requireCapability(request, 'users.create');
   if (!gate.ok) return gate.error;
 
   const body = await request.json().catch(() => ({}));
@@ -46,6 +50,12 @@ export async function POST(request: NextRequest) {
     const { data: role, error } = await supabase.from('ops_roles').select('key, permissions').eq('id', roleId).maybeSingle();
     if (error) return dbError(error);
     if (!role) return NextResponse.json({ error: 'NOT_FOUND' }, { status: 404 });
+    if (!isAssignableDeskRole(role)) {
+      return NextResponse.json(
+        { error: 'INVALID', message: 'Zone captain is roster-only. Create a Floor supervisor account instead, or promote volunteers on the team page.' },
+        { status: 400 },
+      );
+    }
     if (role.key === 'super_admin' && gate.session.role !== 'super_admin') {
       return NextResponse.json({ error: 'FORBIDDEN' }, { status: 403 });
     }

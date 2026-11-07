@@ -1,14 +1,14 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { logActivity } from '@/app/lib/admin/activity';
-import { dbError, exceedsAccess, requireFeature } from '@/app/lib/admin/guard';
-import { allFeatureKeys, cleanPermissions } from '@/app/lib/admin/permissions';
+import { dbError, exceedsAccess, requireCapability } from '@/app/lib/admin/guard';
+import { allPermissionKeys, cleanPermissions } from '@/app/lib/admin/permissions';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
 
 export const runtime = 'nodejs';
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await requireFeature(request, 'roles');
+  const gate = await requireCapability(request, 'roles.edit');
   if (!gate.ok) return gate.error;
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
@@ -25,7 +25,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (role.key === 'super_admin' && gate.session.role !== 'super_admin') {
       return NextResponse.json({ error: 'FORBIDDEN' }, { status: 403 });
     }
-    const nextPermissions = role.key === 'super_admin' ? allFeatureKeys() : permissions;
+    const nextPermissions = role.key === 'super_admin' ? allPermissionKeys() : permissions;
     if (exceedsAccess(gate.session, nextPermissions)) return NextResponse.json({ error: 'FORBIDDEN' }, { status: 403 });
 
     const { error: updateError } = await supabase.from('ops_roles').update({ name, description, permissions: nextPermissions }).eq('id', id);
@@ -49,7 +49,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await requireFeature(request, 'roles');
+  const gate = await requireCapability(request, 'roles.delete');
   if (!gate.ok) return gate.error;
   const { id } = await params;
 

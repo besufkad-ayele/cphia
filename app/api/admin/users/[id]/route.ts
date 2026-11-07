@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { logActivity } from '@/app/lib/admin/activity';
-import { dbError, exceedsAccess, requireFeature } from '@/app/lib/admin/guard';
+import { dbError, exceedsAccess, requireCapability } from '@/app/lib/admin/guard';
 import { cleanPermissions } from '@/app/lib/admin/permissions';
+import { isAssignableDeskRole } from '@/app/lib/admin/team-scope';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
 
 export const runtime = 'nodejs';
@@ -16,7 +17,7 @@ async function activeSuperAdmins(exceptId?: string) {
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await requireFeature(request, 'users');
+  const gate = await requireCapability(request, 'users.edit');
   if (!gate.ok) return gate.error;
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
@@ -30,6 +31,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const { data: role, error } = await supabase.from('ops_roles').select('key, permissions').eq('id', String(body.roleId ?? '')).maybeSingle();
     if (error) return dbError(error);
     if (!role) return NextResponse.json({ error: 'NOT_FOUND' }, { status: 404 });
+    if (!isAssignableDeskRole(role)) {
+      return NextResponse.json(
+        { error: 'INVALID', message: 'Zone captain is roster-only and cannot be a desk login.' },
+        { status: 400 },
+      );
+    }
     if (role.key === 'super_admin' && gate.session.role !== 'super_admin') {
       return NextResponse.json({ error: 'FORBIDDEN' }, { status: 403 });
     }
@@ -71,7 +78,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await requireFeature(request, 'users');
+  const gate = await requireCapability(request, 'users.delete');
   if (!gate.ok) return gate.error;
   const { id } = await params;
   if (id === gate.session.id) return NextResponse.json({ error: 'SELF' }, { status: 400 });

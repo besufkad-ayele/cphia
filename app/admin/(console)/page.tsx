@@ -7,7 +7,7 @@ import { HEALTH_SUBSECTORS, SECTORS } from '@cphia/shared/constants';
 import type { DemographicsSummary } from '@/app/lib/admin/demographics';
 import type { RegistrationMetrics, RegistrationSummary } from '@/app/lib/admin/types';
 import { adminFetch } from '@/app/lib/admin/messages';
-import { hasFeature } from '@/app/lib/admin/permissions';
+import { hasCapability, hasFeature } from '@/app/lib/admin/permissions';
 import { useConnectionStatus } from '@/components/admin/connection-status';
 import { DashboardDemographics } from '@/components/admin/dashboard-charts';
 import { StatusBadge } from '@/components/admin/status-badge';
@@ -18,7 +18,8 @@ import { href } from '@/lib/app-href';
 
 const emptyMetrics: RegistrationMetrics = { total: 0, pending: 0, approved: 0, review: 0, flagged: 0 };
 const POLL_MS = 2000;
-const SLOW_MS = 2000;
+/** Overview often takes 1.5–3s on localhost; only warn when it clearly stalls. */
+const SLOW_MS = 4500;
 
 type BoardShift = {
   id: string;
@@ -65,20 +66,24 @@ export default function AdminDashboardPage() {
   const [sector, setSector] = useState('');
   const [subsector, setSubsector] = useState('');
   const { setNotice } = useConnectionStatus();
-  const inFlight = useRef(false);
   const hasDataRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
+    let busy = false;
     let controller: AbortController | null = null;
     let slowTimer: ReturnType<typeof setTimeout> | null = null;
+    let loadedOnce = false;
     hasDataRef.current = false;
 
     async function load(initial: boolean) {
-      if (cancelled || inFlight.current) return;
-      inFlight.current = true;
-      if (initial) setLoading(true);
+      // Use a local busy flag (not a remount-surviving ref) so React Strict Mode
+      // remounts can fetch again instead of getting stuck on the loading skeleton.
+      if (cancelled || busy) return;
+      busy = true;
+      if (initial && !loadedOnce) setLoading(true);
 
+      controller?.abort();
       controller = new AbortController();
       const signal = controller.signal;
 
@@ -95,6 +100,7 @@ export default function AdminDashboardPage() {
       try {
         const next = await adminFetch<Overview>(`/api/admin/overview?${params}`, { signal });
         if (cancelled || signal.aborted) return;
+        loadedOnce = true;
         hasDataRef.current = true;
         setData(next);
         setError(null);
@@ -110,7 +116,6 @@ export default function AdminDashboardPage() {
           setError(message);
           setNotice(null);
         } else {
-          // Keep last good data; inform quietly in the top bar (not an error banner).
           setNotice('Sync delayed — retrying with current numbers on screen.');
         }
       } finally {
@@ -118,7 +123,7 @@ export default function AdminDashboardPage() {
           clearTimeout(slowTimer);
           slowTimer = null;
         }
-        inFlight.current = false;
+        busy = false;
         if (!cancelled && initial) setLoading(false);
       }
     }
@@ -139,13 +144,21 @@ export default function AdminDashboardPage() {
 
   const metrics = data?.metrics ?? emptyMetrics;
   const session = { role: data?.role || 'admin', permissions: data?.permissions ?? [] };
+  const showMetrics = !data || hasCapability(session, 'dashboard.metrics');
+  const showGender = !data || hasCapability(session, 'dashboard.gender');
+  const showGenderSector = !data || hasCapability(session, 'dashboard.gender_sector');
+  const showAge = !data || hasCapability(session, 'dashboard.age');
+  const showEducation = !data || hasCapability(session, 'dashboard.education');
+  const showSectors = !data || hasCapability(session, 'dashboard.sectors');
+  const showFloor = !data || hasCapability(session, 'dashboard.floor');
+  const showRecent = !data || hasCapability(session, 'dashboard.recent');
   const cards = [
     { label: 'Volunteers', value: metrics.total, note: `${metrics.pending} pending · ${metrics.approved} approved`, href: volunteersHref(sector, subsector), icon: Users, feature: 'volunteers' as const },
     { label: 'On duty today', value: data?.shiftsToday ?? 0, note: `${data?.checkedInToday ?? 0} checked in`, href: href('/admin/attendance'), icon: CalendarCheck, feature: 'attendance' as const },
     { label: 'Open cohorts', value: data?.cohorts ?? 0, note: 'Planning, live, and active events', href: href('/admin/cohorts'), icon: CalendarRange, feature: 'cohorts' as const },
     { label: 'Live forms', value: data?.formsPublished ?? 0, note: 'Published briefings and checklists', href: href('/admin/forms'), icon: ClipboardList, feature: 'forms' as const },
     { label: 'Shifts', value: data?.shiftsToday ?? 0, note: 'Roster blocks scheduled today', href: href('/admin/shifts'), icon: Clock3, feature: 'shifts' as const },
-  ].filter((card) => !data || hasFeature(session, card.feature));
+  ].filter((card) => showMetrics && (!data || hasFeature(session, card.feature)));
 
   const showHealthSubs = sector === 'Health';
   const filterNote = [sector || null, subsector || null].filter(Boolean).join(' · ') || 'All sectors';
@@ -195,6 +208,7 @@ export default function AdminDashboardPage() {
       <Banner message={error || (data?.migrationRequired ? 'Apply supabase/migrations/009_ops_modules.sql to turn on attendance, shifts, cohorts, forms, and roles.' : null)} />
       <p className="text-sm text-zinc-400">Showing: <span className="text-[#f6e7b2]">{filterNote}</span></p>
 
+      {showMetrics ? (
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {loading
           ? Array.from({ length: 4 }).map((_, index) => (
@@ -215,14 +229,21 @@ export default function AdminDashboardPage() {
               );
             })}
       </div>
+      ) : null}
 
       <DashboardDemographics
         data={data?.demographics ?? null}
         loading={loading}
         total={metrics.total}
+        showGender={showGender}
+        showGenderBySector={showGenderSector}
+        showAge={showAge}
+        showEducation={showEducation}
       />
 
-      <div className="grid gap-4 xl:grid-cols-[1fr_1fr_1fr]">
+      {showSectors || showFloor ? (
+      <div className={`grid gap-4 ${[showSectors, showSectors, showFloor].filter(Boolean).length > 1 ? 'xl:grid-cols-[1fr_1fr_1fr]' : ''}`}>
+        {showSectors ? (
         <Card>
           <CardHeader>
             <CardTitle>By sector</CardTitle>
@@ -245,7 +266,9 @@ export default function AdminDashboardPage() {
             ) : null}
           </CardContent>
         </Card>
+        ) : null}
 
+        {showSectors ? (
         <Card>
           <CardHeader>
             <CardTitle>Health sub-sectors</CardTitle>
@@ -268,7 +291,9 @@ export default function AdminDashboardPage() {
             ) : null}
           </CardContent>
         </Card>
+        ) : null}
 
+        {showFloor ? (
         <Card>
           <CardHeader>
             <CardTitle>Today’s floor</CardTitle>
@@ -290,8 +315,11 @@ export default function AdminDashboardPage() {
             ) : null}
           </CardContent>
         </Card>
+        ) : null}
       </div>
+      ) : null}
 
+      {showRecent ? (
       <Card>
         <CardHeader className="flex-row items-center justify-between">
           <div>
@@ -318,6 +346,7 @@ export default function AdminDashboardPage() {
           {!loading && (data?.recent.length ?? 0) === 0 ? <p className="text-sm text-zinc-400">No recent volunteers for this filter.</p> : null}
         </CardContent>
       </Card>
+      ) : null}
     </div>
   );
 }

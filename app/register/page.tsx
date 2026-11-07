@@ -421,7 +421,7 @@ function RegisterScreen() {
                 secondIdPhotoError={secondIdPhotoError}
                 showSecondId={showSecondId || Boolean(values.secondIdType || values.secondIdNumber)}
                 onToggleSecondId={() => setShowSecondId((prev) => !prev)}
-                onUploadPhoto={(file) => void saveImage(file, setDraftPhoto, setPhotoError, 'Personal photo', { imagesOnly: true })}
+                onUploadPhoto={(file) => void saveImage(file, setDraftPhoto, setPhotoError, 'Personal photo')}
                 onRemovePhoto={() => void setDraftPhoto(null)}
                 onUploadFanPhoto={(file) => void saveImage(file, setFanPhoto, setFanPhotoError, 'National ID front')}
                 onRemoveFanPhoto={() => void setFanPhoto(null)}

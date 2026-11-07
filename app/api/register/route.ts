@@ -187,7 +187,7 @@ export async function POST(request: NextRequest) {
       return uploadAttachment(attachment, `${registration.idempotencyKey}${suffix}.${extension}`, options);
     }
 
-    const uploaded = await requireUpload('photo', '', 'PHOTO_REQUIRED', { imagesOnly: true });
+    const uploaded = await requireUpload('photo', '', 'PHOTO_REQUIRED');
     if ('error' in uploaded) {
       const code = String(uploaded.error || 'REGISTRATION_FAILED');
       return jsonError(code, code === 'UPLOAD_FAILED' ? 502 : 400);

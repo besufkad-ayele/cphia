@@ -1,14 +1,14 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { logActivity } from '@/app/lib/admin/activity';
-import { dbError, requireFeature } from '@/app/lib/admin/guard';
+import { dbError, requireCapability } from '@/app/lib/admin/guard';
 import { cleanFields, isFormStatus } from '@/app/lib/admin/ops';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
 
 export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest) {
-  const gate = await requireFeature(request, 'forms');
+  const gate = await requireCapability(request, 'forms.view');
   if (!gate.ok) return gate.error;
   try {
     const supabase = getSupabaseAdmin();
@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const gate = await requireFeature(request, 'forms');
+  const gate = await requireCapability(request, 'forms.create');
   if (!gate.ok) return gate.error;
   const body = await request.json().catch(() => ({}));
   const title = String(body.title ?? '').trim().slice(0, 140);
