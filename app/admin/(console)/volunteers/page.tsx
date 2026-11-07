@@ -17,6 +17,7 @@ import {
 import type { RegistrationMetrics, RegistrationSummary } from '@/app/lib/admin/types';
 import { EXPORT_ASSET_COLUMNS, EXPORT_COLUMNS } from '@/app/lib/admin/types';
 import { ExportColumnsDialog } from '@/components/admin/export-columns-dialog';
+import { ReviewStatusDialog } from '@/components/admin/review-status-dialog';
 import { StatusBadge } from '@/components/admin/status-badge';
 import { VolunteerPreviewDialog } from '@/components/admin/volunteer-preview-dialog';
 import { href } from '@/lib/app-href';
@@ -95,6 +96,8 @@ function VolunteersTable() {
   const [selectedColumns, setSelectedColumns] = useState<string[]>(EXPORT_COLUMNS.map((column) => column.id));
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [statusTarget, setStatusTarget] = useState<{ id: string; status: AdminStatus; note?: string } | null>(null);
+  const [statusInitial, setStatusInitial] = useState<AdminStatus | null>(null);
   const [session, setSession] = useState<{ role: string; permissions: string[] }>({
     role: 'admin',
     permissions: [],
@@ -197,17 +200,22 @@ function VolunteersTable() {
     if (page !== safePage) setPage(safePage);
   }, [page, safePage]);
 
-  async function setReviewStatus(id: string, action: AdminStatus) {
+  function openStatusChange(row: RegistrationSummary, next?: AdminStatus) {
+    setStatusTarget({ id: row.id, status: row.status, note: row.reviewNote || '' });
+    setStatusInitial(next || row.status);
+  }
+
+  async function setReviewStatus(id: string, action: AdminStatus, reason = '') {
     const response = await fetch(`/api/admin/registrations/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action }),
+      body: JSON.stringify({ action, reason }),
     });
     if (!response.ok) {
       toast.error('Could not update status.');
       return;
     }
-    toast.success('Status updated.');
+    toast.success(`Status set to ${action}.`);
     cacheRef.current = null;
     void loadIndex();
   }
@@ -403,8 +411,13 @@ function VolunteersTable() {
                       ) : (
                         <Button size="sm" variant="outline" onClick={() => openVolunteer(row.id)}>View</Button>
                       )}
-                      {canUpdate && row.status !== 'approved' ? (
-                        <Button size="sm" variant="secondary" onClick={() => void setReviewStatus(row.id, 'approved')}>Approve</Button>
+                      {canUpdate ? (
+                        <Button size="sm" variant="secondary" onClick={() => openStatusChange(row, row.status === 'approved' ? 'pending' : 'approved')}>
+                          {row.status === 'approved' ? 'Set pending' : 'Approve'}
+                        </Button>
+                      ) : null}
+                      {canUpdate ? (
+                        <Button size="sm" variant="outline" onClick={() => openStatusChange(row)}>Status</Button>
                       ) : null}
                       {canManage ? (
                         <Button size="sm" variant="ghost" onClick={() => setDeleteId(row.id)}>Delete</Button>
@@ -490,8 +503,13 @@ function VolunteersTable() {
                             ) : (
                               <Button size="sm" variant="outline" onClick={() => openVolunteer(row.id)}>View</Button>
                             )}
-                            {canUpdate && row.status !== 'approved' ? (
-                              <Button size="sm" variant="secondary" onClick={() => void setReviewStatus(row.id, 'approved')}>Approve</Button>
+                            {canUpdate ? (
+                              <Button size="sm" variant="secondary" onClick={() => openStatusChange(row, row.status === 'approved' ? 'pending' : 'approved')}>
+                                {row.status === 'approved' ? 'Set pending' : 'Approve'}
+                              </Button>
+                            ) : null}
+                            {canUpdate ? (
+                              <Button size="sm" variant="outline" onClick={() => openStatusChange(row)}>Status</Button>
                             ) : null}
                             {canManage ? (
                               <Button size="sm" variant="ghost" onClick={() => setDeleteId(row.id)}>Delete</Button>
@@ -538,12 +556,31 @@ function VolunteersTable() {
         }}
         onStatusChange={
           canUpdate
-            ? async (id, action) => {
-                await setReviewStatus(id, action);
+            ? async (id, action, reason) => {
+                await setReviewStatus(id, action, reason);
                 setPreviewId(null);
               }
             : undefined
         }
+      />
+
+      <ReviewStatusDialog
+        open={Boolean(statusTarget)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setStatusTarget(null);
+            setStatusInitial(null);
+          }
+        }}
+        currentStatus={statusTarget?.status}
+        initialStatus={statusInitial}
+        currentNote={statusTarget?.note || ''}
+        onConfirm={async (status, reason) => {
+          if (!statusTarget) return;
+          await setReviewStatus(statusTarget.id, status, reason);
+          setStatusTarget(null);
+          setStatusInitial(null);
+        }}
       />
 
       <Dialog open={Boolean(deleteId)} onOpenChange={(open) => { if (!open) setDeleteId(null); }}>

@@ -30,6 +30,7 @@ import {
 } from '@/app/lib/uploads';
 import { prepareUploadFile } from '@/app/lib/prepare-upload';
 import { ExportColumnsDialog } from '@/components/admin/export-columns-dialog';
+import { ReviewStatusDialog } from '@/components/admin/review-status-dialog';
 import { StatusBadge } from '@/components/admin/status-badge';
 import { VolunteerPreviewDialog } from '@/components/admin/volunteer-preview-dialog';
 import { href } from '@/lib/app-href';
@@ -122,6 +123,7 @@ const FIELD_ROWS: FieldRow[] = [
   { key: 'bank_account_other_owner', label: 'Account owned by someone else', kind: 'boolean' },
   { key: 'ureport_registered', label: 'U-Report registered', kind: 'boolean' },
   { key: 'review_status', label: 'Review status', kind: 'select', options: ADMIN_STATUSES },
+  { key: 'review_note', label: 'Review note', kind: 'textarea' },
   { key: 'ui_language', label: 'UI language', kind: 'select', options: ['en', 'am', 'om', 'ti'] },
   { key: 'created_at', label: 'Submitted', kind: 'readonly' },
 ];
@@ -323,6 +325,8 @@ function VolunteerDetailPageInner() {
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [imageBusy, setImageBusy] = useState<Record<string, boolean>>({});
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [statusInitial, setStatusInitial] = useState<AdminStatus | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [selectedColumns, setSelectedColumns] = useState<string[]>([
     ...EXPORT_COLUMNS.map((column) => column.id),
@@ -441,17 +445,22 @@ function VolunteerDetailPageInner() {
     void load();
   }
 
-  async function setStatus(action: AdminStatus) {
+  function openStatus(next?: AdminStatus) {
+    setStatusInitial(next || detail?.status || 'pending');
+    setStatusOpen(true);
+  }
+
+  async function setStatus(action: AdminStatus, reason: string) {
     const response = await fetch(`/api/admin/registrations/${params.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action }),
+      body: JSON.stringify({ action, reason }),
     });
     if (!response.ok) {
       toast.error('Could not update status.');
       return;
     }
-    toast.success('Status updated.');
+    toast.success(`Status set to ${action}.`);
     void load();
   }
 
@@ -586,9 +595,11 @@ function VolunteerDetailPageInner() {
           ) : null}
           {canUpdate ? (
             <>
-              <Button variant="secondary" className="h-11" onClick={() => void setStatus('approved')}>Approve</Button>
-              <Button variant="outline" className="h-11" onClick={() => void setStatus('review')}>Review</Button>
-              <Button variant="outline" className="h-11" onClick={() => void setStatus('flagged')}>Flag</Button>
+              <Button variant="secondary" className="h-11" onClick={() => openStatus('approved')}>Approve</Button>
+              <Button variant="outline" className="h-11" onClick={() => openStatus('pending')}>Pending</Button>
+              <Button variant="outline" className="h-11" onClick={() => openStatus('review')}>Review</Button>
+              <Button variant="outline" className="h-11" onClick={() => openStatus('flagged')}>Flag</Button>
+              <Button variant="ghost" className="h-11" onClick={() => openStatus()}>Change status</Button>
             </>
           ) : null}
           {canManage ? (
@@ -596,6 +607,18 @@ function VolunteerDetailPageInner() {
           ) : null}
         </div>
       </div>
+
+      {typeof detail.review_note === 'string' && detail.review_note.trim() ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Latest review note</CardTitle>
+            <CardDescription>Reason left when status was last changed.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="whitespace-pre-wrap text-sm text-foreground">{String(detail.review_note)}</p>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {cohort ? (
         <Card>
@@ -739,6 +762,12 @@ function VolunteerDetailPageInner() {
                             <option value="true">Yes</option>
                             <option value="false">No</option>
                           </select>
+                        ) : editingField && kind === 'textarea' ? (
+                          <textarea
+                            className="min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                            value={draft[row.key] ?? ''}
+                            onChange={(event) => setDraft((current) => ({ ...current, [row.key]: event.target.value }))}
+                          />
                         ) : editingField ? (
                           <Input
                             className="h-11"
@@ -788,6 +817,15 @@ function VolunteerDetailPageInner() {
         title="Export this volunteer"
         description="Choose columns, then download Excel or CSV for this registration."
         onExport={exportVolunteer}
+      />
+
+      <ReviewStatusDialog
+        open={statusOpen}
+        onOpenChange={setStatusOpen}
+        currentStatus={detail.status}
+        initialStatus={statusInitial}
+        currentNote={typeof detail.review_note === 'string' ? detail.review_note : ''}
+        onConfirm={(status, reason) => setStatus(status, reason)}
       />
 
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>

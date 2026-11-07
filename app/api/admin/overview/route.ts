@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
     if (hasFeature(session, 'volunteers')) {
       let recentQuery = supabase
         .from('registrations')
-        .select('id, registration_id, first_name, middle_name, last_name, email, sector, health_subsectors, residence_region, email_status, device_flag, review_status, created_at, ui_language, phone, secondary_phone, fan_number, bank_name, cohort')
+        .select('id, registration_id, first_name, middle_name, last_name, email, sector, health_subsectors, residence_region, email_status, device_flag, review_status, review_note, created_at, ui_language, phone, secondary_phone, fan_number, bank_name, cohort')
         .order('created_at', { ascending: false })
         .limit(6);
       recentQuery = applyRegistrationFilters(recentQuery as never, filters) as typeof recentQuery;
@@ -61,6 +61,7 @@ export async function GET(request: NextRequest) {
           healthSubsectors: row.health_subsectors ?? [],
           residenceRegion: row.residence_region,
           status: deriveAdminStatus(row.review_status, row.email_status, row.device_flag),
+          reviewNote: row.review_note ?? '',
           createdAt: row.created_at,
           uiLanguage: row.ui_language ?? 'en',
           deviceFlag: row.device_flag,

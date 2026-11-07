@@ -42,6 +42,7 @@ const UPDATABLE = [
   'bank_account_other_owner',
   'ureport_registered',
   'review_status',
+  'review_note',
   'ui_language',
 ] as const;
 
@@ -212,6 +213,13 @@ export async function PATCH(
   else if (action === 'pending') updates.review_status = 'pending';
   else if (isAdminStatus(action)) updates.review_status = action;
 
+  const reasonRaw = body?.reason ?? body?.review_note ?? body?.reviewNote;
+  if (typeof reasonRaw === 'string') {
+    updates.review_note = reasonRaw.trim().slice(0, 2000);
+  } else if (updates.review_status && (body?.reason === null || body?.review_note === null)) {
+    updates.review_note = '';
+  }
+
   for (const key of UPDATABLE) {
     if (body?.[key] === undefined) continue;
     const value = body[key];
@@ -343,22 +351,29 @@ export async function PATCH(
   }
 
   const reviewStatus = typeof updates.review_status === 'string' ? updates.review_status : data.review_status;
+  const reviewNote = typeof updates.review_note === 'string' ? updates.review_note : undefined;
   const changedKeys = Object.keys(updates);
   await logActivity({
     actor: gate.session,
     action: changedKeys.includes('review_status') ? `volunteer.${reviewStatus || 'update'}` : 'volunteer.update',
     summary: changedKeys.includes('review_status')
-      ? `${gate.session.fullName} set volunteer status to ${reviewStatus}`
+      ? `${gate.session.fullName} set volunteer status to ${reviewStatus}${reviewNote ? `: ${reviewNote.slice(0, 120)}` : ''}`
       : `${gate.session.fullName} updated a volunteer record`,
     entityType: 'registration',
     entityId: id,
-    metadata: { fields: changedKeys, reviewStatus, languagesUpdated: hasLanguageUpdates },
+    metadata: {
+      fields: changedKeys,
+      reviewStatus,
+      reviewNote: reviewNote || undefined,
+      languagesUpdated: hasLanguageUpdates,
+    },
     request,
   });
 
   return NextResponse.json({
     id: data.id,
     status: deriveAdminStatus(data.review_status, data.email_status, data.device_flag),
+    reviewNote: reviewNote ?? null,
   });
 }
 

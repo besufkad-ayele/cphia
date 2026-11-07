@@ -15,6 +15,7 @@ export type RegistrationSummary = {
   healthSubsectors?: string[];
   residenceRegion: string;
   status: AdminStatus;
+  reviewNote: string;
   createdAt: string;
   uiLanguage: string;
   deviceFlag: string | null;
@@ -88,6 +89,7 @@ export const EXPORT_COLUMNS = [
   { id: 'bank_account_other_owner', label: 'Account owned by someone else' },
   { id: 'ureport_registered', label: 'U-Report registered' },
   { id: 'review_status', label: 'Status' },
+  { id: 'review_note', label: 'Review note' },
   { id: 'email_status', label: 'Email status' },
   { id: 'device_flag', label: 'Device flag' },
   { id: 'ui_language', label: 'UI language' },
@@ -126,6 +128,7 @@ export const STAFF_PREVIEW_FIELDS = [
   { key: 'education_level', label: 'Education' },
   { key: 'cohort', label: 'Cohort' },
   { key: 'review_status', label: 'Status' },
+  { key: 'review_note', label: 'Review note' },
 ] as const;
 
 export const ASSET_SLOTS = [

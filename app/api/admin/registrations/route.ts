@@ -43,6 +43,7 @@ type RegistrationRow = {
   email_status: string | null;
   device_flag: string | null;
   review_status: string | null;
+  review_note: string | null;
   created_at: string;
   ui_language: string | null;
   phone: string | null;
@@ -71,6 +72,7 @@ function toSummary(row: RegistrationRow): RegistrationSummary {
     healthSubsectors: row.health_subsectors ?? [],
     residenceRegion: row.residence_region,
     status: deriveAdminStatus(row.review_status, row.email_status, row.device_flag),
+    reviewNote: row.review_note ?? '',
     createdAt: row.created_at,
     uiLanguage: row.ui_language ?? 'en',
     deviceFlag: row.device_flag,
@@ -80,7 +82,7 @@ function toSummary(row: RegistrationRow): RegistrationSummary {
 }
 
 const SELECT_COLS =
-  'id, registration_id, first_name, middle_name, last_name, email, sector, health_subsectors, residence_region, email_status, device_flag, review_status, created_at, ui_language, phone, secondary_phone, fan_number, bank_name, cohort';
+  'id, registration_id, first_name, middle_name, last_name, email, sector, health_subsectors, residence_region, email_status, device_flag, review_status, review_note, created_at, ui_language, phone, secondary_phone, fan_number, bank_name, cohort';
 
 export async function GET(request: NextRequest) {
   const gate = await requireFeature(request, 'volunteers');
