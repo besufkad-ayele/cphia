@@ -199,11 +199,16 @@ function VolunteersTable() {
     if (page !== safePage) setPage(safePage);
   }, [page, safePage]);
 
-  async function setReviewStatus(id: string, action: AdminStatus | null, reason = '') {
+  async function setReviewStatus(
+    id: string,
+    action: AdminStatus | null,
+    reason = '',
+    areas: string[] = [],
+  ) {
     const response = await fetch(`/api/admin/registrations/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(action ? { action, reason } : { reason }),
+      body: JSON.stringify(action ? { action, reason, areas } : { reason, areas }),
     });
     if (!response.ok) {
       toast.error(action ? 'Could not update status.' : 'Could not save reason.');
@@ -434,7 +439,7 @@ function VolunteersTable() {
                         <ReviewStatusActions
                           compact
                           currentStatus={row.status}
-                          onChange={(action, reason) => setReviewStatus(row.id, action, reason)}
+                          onChange={(action, reason, areas) => setReviewStatus(row.id, action, reason, areas)}
                         />
                       </div>
                     ) : null}
@@ -549,7 +554,7 @@ function VolunteersTable() {
                             <ReviewStatusActions
                               compact
                               currentStatus={row.status}
-                              onChange={(action, reason) => setReviewStatus(row.id, action, reason)}
+                              onChange={(action, reason, areas) => setReviewStatus(row.id, action, reason, areas)}
                             />
                           </TableCell>
                         </TableRow>
@@ -594,8 +599,8 @@ function VolunteersTable() {
         }}
         onStatusChange={
           canUpdate
-            ? async (id, action, reason) => {
-                await setReviewStatus(id, action, reason);
+            ? async (id, action, reason, areas) => {
+                await setReviewStatus(id, action, reason, areas);
               }
             : undefined
         }

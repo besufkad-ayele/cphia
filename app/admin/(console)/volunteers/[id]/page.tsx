@@ -443,11 +443,15 @@ function VolunteerDetailPageInner() {
     void load();
   }
 
-  async function setStatus(action: AdminStatus | null, reason: string) {
+  async function setStatus(action: AdminStatus | null, reason: string, areas: string[] = []) {
     const response = await fetch(`/api/admin/registrations/${params.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(action ? { action, reason } : { reason }),
+      body: JSON.stringify(
+        action
+          ? { action, reason, areas }
+          : { reason, areas },
+      ),
     });
     if (!response.ok) {
       toast.error(action ? 'Could not update status.' : 'Could not save reason.');

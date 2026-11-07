@@ -1,7 +1,11 @@
 'use client';
 
 import type { AdminStatus } from '@/app/lib/admin/status';
-import { parseReviewComments, type ReviewComment } from '@/app/lib/admin/types';
+import {
+  parseReviewComments,
+  reviewAreaLabels,
+  type ReviewComment,
+} from '@/app/lib/admin/types';
 
 function formatWhen(value: string) {
   const date = new Date(value);
@@ -28,6 +32,7 @@ export function ReviewCommentsCard({
       status: typeof status === 'string' ? status : '',
       note: fallbackNote.trim(),
       actorName: '',
+      areas: [],
     });
   }
   if (!items.length) return null;
@@ -38,19 +43,34 @@ export function ReviewCommentsCard({
         Review reasons ({items.length})
       </p>
       <ul className="mt-2 grid gap-2">
-        {items.map((item) => (
-          <li
-            key={item.id}
-            className="rounded-lg border border-[#e7c15a]/20 bg-black/20 px-3 py-2 text-sm"
-          >
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-              {item.status ? <span className="capitalize text-[#e7c15a]">{item.status}</span> : null}
-              {item.actorName ? <span>{item.actorName}</span> : null}
-              {item.at ? <span>{formatWhen(item.at)}</span> : null}
-            </div>
-            <p className="mt-1 whitespace-pre-wrap text-foreground">{item.note}</p>
-          </li>
-        ))}
+        {items.map((item) => {
+          const labels = reviewAreaLabels(item.areas);
+          return (
+            <li
+              key={item.id}
+              className="rounded-lg border border-[#e7c15a]/20 bg-black/20 px-3 py-2 text-sm"
+            >
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                {item.status ? <span className="capitalize text-[#e7c15a]">{item.status}</span> : null}
+                {item.actorName ? <span>{item.actorName}</span> : null}
+                {item.at ? <span>{formatWhen(item.at)}</span> : null}
+              </div>
+              {labels.length ? (
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {labels.map((label) => (
+                    <span
+                      key={label}
+                      className="rounded-full border border-[#e7c15a]/30 bg-[#e7c15a]/10 px-2 py-0.5 text-[11px] text-[#e7c15a]"
+                    >
+                      {label}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              <p className="mt-1 whitespace-pre-wrap text-foreground">{item.note}</p>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

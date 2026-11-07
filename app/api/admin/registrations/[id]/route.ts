@@ -214,6 +214,9 @@ export async function PATCH(
   else if (isAdminStatus(action)) updates.review_status = action;
 
   const reasonRaw = body?.reason ?? body?.review_note ?? body?.reviewNote;
+  const areaIds = Array.isArray(body?.areas)
+    ? body.areas.map(String).map((item: string) => item.trim()).filter(Boolean).slice(0, 20)
+    : [];
   let appendReason = '';
   if (typeof reasonRaw === 'string') {
     const trimmed = reasonRaw.trim().slice(0, 2000);
@@ -321,6 +324,7 @@ export async function PATCH(
       status: String(statusForComment),
       note: appendReason,
       actorName: gate.session.fullName || '',
+      areas: areaIds,
     });
     updates.review_comments = comments;
     updates.review_note = appendReason;

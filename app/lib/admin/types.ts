@@ -1,12 +1,40 @@
 import type { AdminStatus } from './status';
 
+export const REVIEW_REASON_AREAS = [
+  { id: 'basic', label: 'Basic info' },
+  { id: 'contact', label: 'Contact' },
+  { id: 'id', label: 'ID / FAN' },
+  { id: 'photos', label: 'Photos & files' },
+  { id: 'bank', label: 'Bank' },
+  { id: 'languages', label: 'Languages' },
+  { id: 'sector', label: 'Sector' },
+  { id: 'emergency', label: 'Emergency contact' },
+  { id: 'other', label: 'Other' },
+] as const;
+
+export type ReviewReasonAreaId = (typeof REVIEW_REASON_AREAS)[number]['id'];
+
 export type ReviewComment = {
   id: string;
   at: string;
   status: string;
   note: string;
   actorName: string;
+  areas: string[];
 };
+
+export function reviewAreaLabels(areaIds: string[]) {
+  const lookup = new Map(REVIEW_REASON_AREAS.map((area) => [area.id, area.label]));
+  return areaIds.map((id) => lookup.get(id as ReviewReasonAreaId) || id).filter(Boolean);
+}
+
+export function formatReviewReason(areaIds: string[], detail = '') {
+  const labels = reviewAreaLabels(areaIds);
+  const trimmed = detail.trim();
+  if (labels.length && trimmed) return `Needs attention: ${labels.join(', ')}. ${trimmed}`;
+  if (labels.length) return `Needs attention: ${labels.join(', ')}`;
+  return trimmed;
+}
 
 export function parseReviewComments(value: unknown): ReviewComment[] {
   if (!Array.isArray(value)) return [];
@@ -14,14 +42,18 @@ export function parseReviewComments(value: unknown): ReviewComment[] {
     .map((item) => {
       if (!item || typeof item !== 'object') return null;
       const row = item as Record<string, unknown>;
+      const areas = Array.isArray(row.areas)
+        ? row.areas.map(String).map((id) => id.trim()).filter(Boolean)
+        : [];
       const note = typeof row.note === 'string' ? row.note.trim() : '';
-      if (!note) return null;
+      if (!note && !areas.length) return null;
       return {
         id: typeof row.id === 'string' && row.id ? row.id : crypto.randomUUID(),
         at: typeof row.at === 'string' && row.at ? row.at : new Date().toISOString(),
         status: typeof row.status === 'string' ? row.status : '',
-        note,
+        note: note || formatReviewReason(areas),
         actorName: typeof row.actorName === 'string' ? row.actorName : '',
+        areas,
       } satisfies ReviewComment;
     })
     .filter((item): item is ReviewComment => Boolean(item));

@@ -45,7 +45,12 @@ export function VolunteerPreviewDialog({
   volunteerId: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onStatusChange?: (id: string, action: AdminStatus | null, reason: string) => Promise<void> | void;
+  onStatusChange?: (
+    id: string,
+    action: AdminStatus | null,
+    reason: string,
+    areas?: string[],
+  ) => Promise<void> | void;
 }) {
   const [detail, setDetail] = useState<PreviewDetail | null>(null);
   const [loading, setLoading] = useState(false);
@@ -144,8 +149,8 @@ export function VolunteerPreviewDialog({
             {onStatusChange ? (
               <ReviewStatusActions
                 currentStatus={detail.status}
-                onChange={async (status, reason) => {
-                  await onStatusChange(detail.id, status, reason);
+                onChange={async (status, reason, areas = []) => {
+                  await onStatusChange(detail.id, status, reason, areas);
                   setDetail((current) => {
                     if (!current) return current;
                     const nextStatus = status ?? current.status;
@@ -161,6 +166,7 @@ export function VolunteerPreviewDialog({
                       status: nextStatus || 'review',
                       note: reason.trim(),
                       actorName: '',
+                      areas,
                     });
                     return {
                       ...current,

@@ -2,6 +2,11 @@
 
 import { useState } from 'react';
 import type { AdminStatus } from '@/app/lib/admin/status';
+import {
+  REVIEW_REASON_AREAS,
+  formatReviewReason,
+  type ReviewReasonAreaId,
+} from '@/app/lib/admin/types';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
@@ -16,13 +21,24 @@ export function ReviewStatusActions({
   compact = false,
 }: {
   currentStatus?: AdminStatus | null;
-  onChange: (status: AdminStatus | null, reason: string) => Promise<void> | void;
+  onChange: (
+    status: AdminStatus | null,
+    reason: string,
+    areas?: string[],
+  ) => Promise<void> | void;
   className?: string;
   compact?: boolean;
 }) {
   const [reason, setReason] = useState('');
+  const [areas, setAreas] = useState<ReviewReasonAreaId[]>([]);
   const [selected, setSelected] = useState<AdminStatus | null>(null);
   const [saving, setSaving] = useState(false);
+
+  function toggleArea(id: ReviewReasonAreaId) {
+    setAreas((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
+    );
+  }
 
   async function applyInstant(status: AdminStatus) {
     setSelected(null);
@@ -35,25 +51,28 @@ export function ReviewStatusActions({
   }
 
   async function submitReason() {
-    const trimmed = reason.trim();
-    if (!trimmed) {
-      toast.error('Write a reason before submitting.');
+    const composed = formatReviewReason(areas, reason);
+    if (!composed) {
+      toast.error('Select an area or write a short note.');
       return;
     }
     const status = selected && REASON_STATUSES.includes(selected) ? selected : null;
     if (!status && !REASON_STATUSES.includes(currentStatus || 'pending')) {
-      toast.error('Choose Review or Flag, then submit the reason.');
+      toast.error('Choose Review or Flag, then submit.');
       return;
     }
     setSaving(true);
     try {
-      await onChange(status ?? currentStatus ?? null, trimmed);
+      await onChange(status ?? currentStatus ?? null, composed, areas);
       setReason('');
+      setAreas([]);
       setSelected(null);
     } finally {
       setSaving(false);
     }
   }
+
+  const canSubmit = areas.length > 0 || Boolean(reason.trim());
 
   return (
     <div className={cn('grid gap-3', className)}>
@@ -97,12 +116,35 @@ export function ReviewStatusActions({
       </div>
 
       <div className="grid gap-1.5">
+        <Label className="text-xs text-muted-foreground">
+          What needs attention? (tap areas — optional note below)
+        </Label>
+        <div className="flex flex-wrap gap-1.5">
+          {REVIEW_REASON_AREAS.map((area) => {
+            const active = areas.includes(area.id);
+            return (
+              <button
+                key={area.id}
+                type="button"
+                disabled={saving}
+                onClick={() => toggleArea(area.id)}
+                className={cn(
+                  'rounded-full border px-3 py-1.5 text-xs transition',
+                  active
+                    ? 'border-[#e7c15a]/60 bg-[#e7c15a]/15 text-[#e7c15a]'
+                    : 'border-white/10 bg-black/20 text-muted-foreground hover:border-white/25 hover:text-foreground',
+                )}
+              >
+                {area.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="grid gap-1.5">
         <Label htmlFor="inline-review-reason" className="text-xs text-muted-foreground">
-          {selected === 'flagged'
-            ? 'Reason for flag'
-            : selected === 'review'
-              ? 'Reason for review'
-              : 'Reason (choose Review or Flag, then submit)'}
+          Extra detail (optional if areas selected)
         </Label>
         <div className={cn('flex gap-2', compact ? 'flex-col sm:flex-row' : 'flex-col sm:flex-row sm:items-start')}>
           <textarea
@@ -110,15 +152,15 @@ export function ReviewStatusActions({
             value={reason}
             onChange={(event) => setReason(event.target.value)}
             rows={compact ? 2 : 3}
-            placeholder="e.g. FAN photo unreadable, waiting for clearer ID…"
+            placeholder="Optional: FAN photo blurry, wrong account name…"
             className={cn(
               'min-w-0 flex-1 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus-visible:border-[#e7c15a]/50',
               compact && 'rounded-md',
             )}
           />
           <Button
-            className={cn(compact ? 'h-9 shrink-0' : 'h-11 shrink-0', !compact && 'sm:mt-0')}
-            disabled={saving || !reason.trim()}
+            className={cn(compact ? 'h-9 shrink-0' : 'h-11 shrink-0')}
+            disabled={saving || !canSubmit}
             onClick={() => void submitReason()}
           >
             {saving ? 'Saving…' : 'Submit reason'}
