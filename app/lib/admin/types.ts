@@ -1,5 +1,32 @@
 import type { AdminStatus } from './status';
 
+export type ReviewComment = {
+  id: string;
+  at: string;
+  status: string;
+  note: string;
+  actorName: string;
+};
+
+export function parseReviewComments(value: unknown): ReviewComment[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const row = item as Record<string, unknown>;
+      const note = typeof row.note === 'string' ? row.note.trim() : '';
+      if (!note) return null;
+      return {
+        id: typeof row.id === 'string' && row.id ? row.id : crypto.randomUUID(),
+        at: typeof row.at === 'string' && row.at ? row.at : new Date().toISOString(),
+        status: typeof row.status === 'string' ? row.status : '',
+        note,
+        actorName: typeof row.actorName === 'string' ? row.actorName : '',
+      } satisfies ReviewComment;
+    })
+    .filter((item): item is ReviewComment => Boolean(item));
+}
+
 export type RegistrationSummary = {
   id: string;
   registrationId: string;

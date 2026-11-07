@@ -30,6 +30,7 @@ import {
 } from '@/app/lib/uploads';
 import { prepareUploadFile } from '@/app/lib/prepare-upload';
 import { ExportColumnsDialog } from '@/components/admin/export-columns-dialog';
+import { ReviewCommentsCard } from '@/components/admin/review-comments-card';
 import { ReviewStatusActions } from '@/components/admin/review-status-actions';
 import { StatusBadge } from '@/components/admin/status-badge';
 import { VolunteerPreviewDialog } from '@/components/admin/volunteer-preview-dialog';
@@ -123,7 +124,6 @@ const FIELD_ROWS: FieldRow[] = [
   { key: 'bank_account_other_owner', label: 'Account owned by someone else', kind: 'boolean' },
   { key: 'ureport_registered', label: 'U-Report registered', kind: 'boolean' },
   { key: 'review_status', label: 'Review status', kind: 'select', options: ADMIN_STATUSES },
-  { key: 'review_note', label: 'Review note', kind: 'textarea' },
   { key: 'ui_language', label: 'UI language', kind: 'select', options: ['en', 'am', 'om', 'ti'] },
   { key: 'created_at', label: 'Submitted', kind: 'readonly' },
 ];
@@ -533,19 +533,13 @@ function VolunteerDetailPageInner() {
 
   const cohort = detail.cohortDetail;
 
-  const reviewNote =
-    typeof detail.review_note === 'string' && detail.review_note.trim()
-      ? detail.review_note.trim()
-      : '';
-
   return (
     <div className="grid gap-4">
-      {reviewNote ? (
-        <div className="rounded-xl border border-[#e7c15a]/35 bg-[#e7c15a]/10 px-4 py-3">
-          <p className="text-xs font-medium uppercase tracking-wide text-[#e7c15a]">Review reason</p>
-          <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{reviewNote}</p>
-        </div>
-      ) : null}
+      <ReviewCommentsCard
+        status={detail.status}
+        comments={detail.review_comments}
+        fallbackNote={typeof detail.review_note === 'string' ? detail.review_note : ''}
+      />
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>

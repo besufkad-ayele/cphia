@@ -3,6 +3,7 @@ import type { NextRequest } from 'next/server';
 import { logActivity } from '@/app/lib/admin/activity';
 import { requireFeature } from '@/app/lib/admin/guard';
 import { deriveAdminStatus, isAdminStatus } from '@/app/lib/admin/status';
+import { parseReviewComments } from '@/app/lib/admin/types';
 import { extensionForMime, uploadVolunteerPhoto } from '@/app/lib/storage/volunteer-photos';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
 
@@ -42,7 +43,6 @@ const UPDATABLE = [
   'bank_account_other_owner',
   'ureport_registered',
   'review_status',
-  'review_note',
   'ui_language',
 ] as const;
 
@@ -214,14 +214,14 @@ export async function PATCH(
   else if (isAdminStatus(action)) updates.review_status = action;
 
   const reasonRaw = body?.reason ?? body?.review_note ?? body?.reviewNote;
+  let appendReason = '';
   if (typeof reasonRaw === 'string') {
     const trimmed = reasonRaw.trim().slice(0, 2000);
-    // Keep existing note on approve/pending when no new reason is typed.
-    if (trimmed || updates.review_status === 'flagged' || updates.review_status === 'review') {
+    // Approve/pending without a typed reason keep existing notes.
+    if (trimmed) {
       updates.review_note = trimmed;
+      appendReason = trimmed;
     }
-  } else if (updates.review_status && (body?.reason === null || body?.review_note === null)) {
-    updates.review_note = '';
   }
 
   for (const key of UPDATABLE) {
@@ -299,8 +299,34 @@ export async function PATCH(
   }
 
   const languages = parseLanguages(body.languages);
-  const hasFieldUpdates = Object.keys(updates).length > 0;
   const hasLanguageUpdates = languages !== null;
+
+  if (appendReason) {
+    const { data: existing, error: existingError } = await supabase
+      .from('registrations')
+      .select('review_comments, review_status')
+      .eq('id', id)
+      .maybeSingle();
+    if (existingError || !existing) {
+      return NextResponse.json({ error: 'NOT_FOUND' }, { status: 404 });
+    }
+    const comments = parseReviewComments(existing.review_comments);
+    const statusForComment =
+      (typeof updates.review_status === 'string' && updates.review_status)
+      || existing.review_status
+      || 'review';
+    comments.push({
+      id: crypto.randomUUID(),
+      at: new Date().toISOString(),
+      status: String(statusForComment),
+      note: appendReason,
+      actorName: gate.session.fullName || '',
+    });
+    updates.review_comments = comments;
+    updates.review_note = appendReason;
+  }
+
+  const hasFieldUpdates = Object.keys(updates).length > 0;
 
   if (!hasFieldUpdates && !hasLanguageUpdates) {
     return NextResponse.json({ error: 'NO_UPDATES' }, { status: 400 });

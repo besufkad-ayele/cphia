@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { STAFF_PREVIEW_FIELDS } from '@/app/lib/admin/types';
 import type { AdminStatus } from '@/app/lib/admin/status';
+import { ReviewCommentsCard } from '@/components/admin/review-comments-card';
 import { ReviewStatusActions } from '@/components/admin/review-status-actions';
 import { StatusBadge } from '@/components/admin/status-badge';
 import { Button } from '@/components/ui/button';
@@ -22,6 +23,7 @@ type PreviewDetail = Record<string, unknown> & {
   registration_id?: string;
   status?: AdminStatus;
   review_note?: string;
+  review_comments?: unknown;
   photoUrl?: string | null;
   first_name?: string;
   last_name?: string;
@@ -121,12 +123,11 @@ export function VolunteerPreviewDialog({
               {detail.status ? <StatusBadge status={detail.status} /> : null}
             </div>
 
-            {typeof detail.review_note === 'string' && detail.review_note.trim() ? (
-              <div className="rounded-xl border border-[#e7c15a]/35 bg-[#e7c15a]/10 px-3 py-2 text-sm">
-                <p className="text-xs font-medium uppercase tracking-wide text-[#e7c15a]">Review reason</p>
-                <p className="mt-1 whitespace-pre-wrap text-foreground">{detail.review_note}</p>
-              </div>
-            ) : null}
+            <ReviewCommentsCard
+              status={detail.status}
+              comments={detail.review_comments}
+              fallbackNote={typeof detail.review_note === 'string' ? detail.review_note : ''}
+            />
 
             <dl className="grid gap-2">
               {STAFF_PREVIEW_FIELDS.filter((field) => field.key !== 'review_note').map((field) => (
@@ -145,15 +146,29 @@ export function VolunteerPreviewDialog({
                 currentStatus={detail.status}
                 onChange={async (status, reason) => {
                   await onStatusChange(detail.id, status, reason);
-                  setDetail((current) =>
-                    current
-                      ? {
-                          ...current,
-                          status: status ?? current.status,
-                          review_note: reason || current.review_note,
-                        }
-                      : current,
-                  );
+                  setDetail((current) => {
+                    if (!current) return current;
+                    const nextStatus = status ?? current.status;
+                    if (!reason.trim()) {
+                      return { ...current, status: nextStatus };
+                    }
+                    const prior = Array.isArray(current.review_comments)
+                      ? [...(current.review_comments as unknown[])]
+                      : [];
+                    prior.push({
+                      id: crypto.randomUUID(),
+                      at: new Date().toISOString(),
+                      status: nextStatus || 'review',
+                      note: reason.trim(),
+                      actorName: '',
+                    });
+                    return {
+                      ...current,
+                      status: nextStatus,
+                      review_note: reason.trim(),
+                      review_comments: prior,
+                    };
+                  });
                 }}
               />
             ) : null}
