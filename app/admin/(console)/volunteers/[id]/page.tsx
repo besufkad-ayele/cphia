@@ -30,7 +30,7 @@ import {
 } from '@/app/lib/uploads';
 import { prepareUploadFile } from '@/app/lib/prepare-upload';
 import { ExportColumnsDialog } from '@/components/admin/export-columns-dialog';
-import { ReviewStatusDialog } from '@/components/admin/review-status-dialog';
+import { ReviewStatusActions } from '@/components/admin/review-status-actions';
 import { StatusBadge } from '@/components/admin/status-badge';
 import { VolunteerPreviewDialog } from '@/components/admin/volunteer-preview-dialog';
 import { href } from '@/lib/app-href';
@@ -325,8 +325,6 @@ function VolunteerDetailPageInner() {
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [imageBusy, setImageBusy] = useState<Record<string, boolean>>({});
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [statusOpen, setStatusOpen] = useState(false);
-  const [statusInitial, setStatusInitial] = useState<AdminStatus | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [selectedColumns, setSelectedColumns] = useState<string[]>([
     ...EXPORT_COLUMNS.map((column) => column.id),
@@ -443,11 +441,6 @@ function VolunteerDetailPageInner() {
     toast.success('Volunteer updated.');
     setEditing(false);
     void load();
-  }
-
-  function openStatus(next?: AdminStatus) {
-    setStatusInitial(next || detail?.status || 'pending');
-    setStatusOpen(true);
   }
 
   async function setStatus(action: AdminStatus, reason: string) {
@@ -593,22 +586,29 @@ function VolunteerDetailPageInner() {
               {saving ? 'Saving…' : 'Save'}
             </Button>
           ) : null}
-          {canUpdate ? (
-            <>
-              <Button variant="secondary" className="h-11" onClick={() => openStatus('approved')}>Approve</Button>
-              <Button variant="outline" className="h-11" onClick={() => openStatus('pending')}>Pending</Button>
-              <Button variant="outline" className="h-11" onClick={() => openStatus('review')}>Review</Button>
-              <Button variant="outline" className="h-11" onClick={() => openStatus('flagged')}>Flag</Button>
-              <Button variant="ghost" className="h-11" onClick={() => openStatus()}>Change status</Button>
-            </>
-          ) : null}
           {canManage ? (
             <Button variant="destructive" className="h-11" onClick={() => setDeleteOpen(true)}>Delete</Button>
           ) : null}
         </div>
       </div>
 
-      {typeof detail.review_note === 'string' && detail.review_note.trim() ? (
+      {canUpdate ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Review status</CardTitle>
+            <CardDescription>
+              Approve or set pending instantly. Add a reason below before Review or Flag.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ReviewStatusActions
+              currentStatus={detail.status}
+              currentNote={typeof detail.review_note === 'string' ? detail.review_note : ''}
+              onChange={setStatus}
+            />
+          </CardContent>
+        </Card>
+      ) : typeof detail.review_note === 'string' && detail.review_note.trim() ? (
         <Card>
           <CardHeader>
             <CardTitle>Latest review note</CardTitle>
@@ -817,15 +817,6 @@ function VolunteerDetailPageInner() {
         title="Export this volunteer"
         description="Choose columns, then download Excel or CSV for this registration."
         onExport={exportVolunteer}
-      />
-
-      <ReviewStatusDialog
-        open={statusOpen}
-        onOpenChange={setStatusOpen}
-        currentStatus={detail.status}
-        initialStatus={statusInitial}
-        currentNote={typeof detail.review_note === 'string' ? detail.review_note : ''}
-        onConfirm={(status, reason) => setStatus(status, reason)}
       />
 
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>

@@ -215,7 +215,11 @@ export async function PATCH(
 
   const reasonRaw = body?.reason ?? body?.review_note ?? body?.reviewNote;
   if (typeof reasonRaw === 'string') {
-    updates.review_note = reasonRaw.trim().slice(0, 2000);
+    const trimmed = reasonRaw.trim().slice(0, 2000);
+    // Keep existing note on approve/pending when no new reason is typed.
+    if (trimmed || updates.review_status === 'flagged' || updates.review_status === 'review') {
+      updates.review_note = trimmed;
+    }
   } else if (updates.review_status && (body?.reason === null || body?.review_note === null)) {
     updates.review_note = '';
   }

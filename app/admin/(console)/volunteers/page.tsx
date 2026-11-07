@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Download, Plus, Search } from 'lucide-react';
@@ -17,7 +17,7 @@ import {
 import type { RegistrationMetrics, RegistrationSummary } from '@/app/lib/admin/types';
 import { EXPORT_ASSET_COLUMNS, EXPORT_COLUMNS } from '@/app/lib/admin/types';
 import { ExportColumnsDialog } from '@/components/admin/export-columns-dialog';
-import { ReviewStatusDialog } from '@/components/admin/review-status-dialog';
+import { ReviewStatusActions } from '@/components/admin/review-status-actions';
 import { StatusBadge } from '@/components/admin/status-badge';
 import { VolunteerPreviewDialog } from '@/components/admin/volunteer-preview-dialog';
 import { href } from '@/lib/app-href';
@@ -96,8 +96,7 @@ function VolunteersTable() {
   const [selectedColumns, setSelectedColumns] = useState<string[]>(EXPORT_COLUMNS.map((column) => column.id));
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
-  const [statusTarget, setStatusTarget] = useState<{ id: string; status: AdminStatus; note?: string } | null>(null);
-  const [statusInitial, setStatusInitial] = useState<AdminStatus | null>(null);
+  const [statusExpandId, setStatusExpandId] = useState<string | null>(null);
   const [session, setSession] = useState<{ role: string; permissions: string[] }>({
     role: 'admin',
     permissions: [],
@@ -200,11 +199,6 @@ function VolunteersTable() {
     if (page !== safePage) setPage(safePage);
   }, [page, safePage]);
 
-  function openStatusChange(row: RegistrationSummary, next?: AdminStatus) {
-    setStatusTarget({ id: row.id, status: row.status, note: row.reviewNote || '' });
-    setStatusInitial(next || row.status);
-  }
-
   async function setReviewStatus(id: string, action: AdminStatus, reason = '') {
     const response = await fetch(`/api/admin/registrations/${id}`, {
       method: 'PATCH',
@@ -216,6 +210,7 @@ function VolunteersTable() {
       return;
     }
     toast.success(`Status set to ${action}.`);
+    setStatusExpandId(null);
     cacheRef.current = null;
     void loadIndex();
   }
@@ -412,17 +407,38 @@ function VolunteersTable() {
                         <Button size="sm" variant="outline" onClick={() => openVolunteer(row.id)}>View</Button>
                       )}
                       {canUpdate ? (
-                        <Button size="sm" variant="secondary" onClick={() => openStatusChange(row, row.status === 'approved' ? 'pending' : 'approved')}>
-                          {row.status === 'approved' ? 'Set pending' : 'Approve'}
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={row.status === 'approved'}
+                          onClick={() => void setReviewStatus(row.id, 'approved')}
+                        >
+                          Approve
                         </Button>
                       ) : null}
                       {canUpdate ? (
-                        <Button size="sm" variant="outline" onClick={() => openStatusChange(row)}>Status</Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setStatusExpandId((current) => (current === row.id ? null : row.id))}
+                        >
+                          {statusExpandId === row.id ? 'Hide' : 'Status'}
+                        </Button>
                       ) : null}
                       {canManage ? (
                         <Button size="sm" variant="ghost" onClick={() => setDeleteId(row.id)}>Delete</Button>
                       ) : null}
                     </div>
+                    {statusExpandId === row.id ? (
+                      <div className="rounded-lg border border-white/10 bg-black/20 p-3" onClick={(event) => event.stopPropagation()}>
+                        <ReviewStatusActions
+                          compact
+                          currentStatus={row.status}
+                          currentNote={row.reviewNote || ''}
+                          onChange={(action, reason) => setReviewStatus(row.id, action, reason)}
+                        />
+                      </div>
+                    ) : null}
                   </div>
                 ))}
           </div>
@@ -450,8 +466,8 @@ function VolunteersTable() {
                       </TableRow>
                     ))
                   : rows.map((row) => (
+                    <Fragment key={row.id}>
                       <TableRow
-                        key={row.id}
                         className="cursor-pointer"
                         onClick={() => openVolunteer(row.id)}
                       >
@@ -504,12 +520,23 @@ function VolunteersTable() {
                               <Button size="sm" variant="outline" onClick={() => openVolunteer(row.id)}>View</Button>
                             )}
                             {canUpdate ? (
-                              <Button size="sm" variant="secondary" onClick={() => openStatusChange(row, row.status === 'approved' ? 'pending' : 'approved')}>
-                                {row.status === 'approved' ? 'Set pending' : 'Approve'}
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                disabled={row.status === 'approved'}
+                                onClick={() => void setReviewStatus(row.id, 'approved')}
+                              >
+                                Approve
                               </Button>
                             ) : null}
                             {canUpdate ? (
-                              <Button size="sm" variant="outline" onClick={() => openStatusChange(row)}>Status</Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setStatusExpandId((current) => (current === row.id ? null : row.id))}
+                              >
+                                {statusExpandId === row.id ? 'Hide' : 'Status'}
+                              </Button>
                             ) : null}
                             {canManage ? (
                               <Button size="sm" variant="ghost" onClick={() => setDeleteId(row.id)}>Delete</Button>
@@ -517,6 +544,19 @@ function VolunteersTable() {
                           </div>
                         </TableCell>
                       </TableRow>
+                      {statusExpandId === row.id ? (
+                        <TableRow>
+                          <TableCell colSpan={7} className="bg-black/20">
+                            <ReviewStatusActions
+                              compact
+                              currentStatus={row.status}
+                              currentNote={row.reviewNote || ''}
+                              onChange={(action, reason) => setReviewStatus(row.id, action, reason)}
+                            />
+                          </TableCell>
+                        </TableRow>
+                      ) : null}
+                    </Fragment>
                     ))}
               </TableBody>
             </Table>
@@ -558,29 +598,9 @@ function VolunteersTable() {
           canUpdate
             ? async (id, action, reason) => {
                 await setReviewStatus(id, action, reason);
-                setPreviewId(null);
               }
             : undefined
         }
-      />
-
-      <ReviewStatusDialog
-        open={Boolean(statusTarget)}
-        onOpenChange={(open) => {
-          if (!open) {
-            setStatusTarget(null);
-            setStatusInitial(null);
-          }
-        }}
-        currentStatus={statusTarget?.status}
-        initialStatus={statusInitial}
-        currentNote={statusTarget?.note || ''}
-        onConfirm={async (status, reason) => {
-          if (!statusTarget) return;
-          await setReviewStatus(statusTarget.id, status, reason);
-          setStatusTarget(null);
-          setStatusInitial(null);
-        }}
       />
 
       <Dialog open={Boolean(deleteId)} onOpenChange={(open) => { if (!open) setDeleteId(null); }}>
