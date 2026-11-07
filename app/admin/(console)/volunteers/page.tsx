@@ -199,17 +199,17 @@ function VolunteersTable() {
     if (page !== safePage) setPage(safePage);
   }, [page, safePage]);
 
-  async function setReviewStatus(id: string, action: AdminStatus, reason = '') {
+  async function setReviewStatus(id: string, action: AdminStatus | null, reason = '') {
     const response = await fetch(`/api/admin/registrations/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, reason }),
+      body: JSON.stringify(action ? { action, reason } : { reason }),
     });
     if (!response.ok) {
-      toast.error('Could not update status.');
+      toast.error(action ? 'Could not update status.' : 'Could not save reason.');
       return;
     }
-    toast.success(`Status set to ${action}.`);
+    toast.success(action ? `Status set to ${action}.` : 'Reason saved.');
     setStatusExpandId(null);
     cacheRef.current = null;
     void loadIndex();
@@ -434,7 +434,6 @@ function VolunteersTable() {
                         <ReviewStatusActions
                           compact
                           currentStatus={row.status}
-                          currentNote={row.reviewNote || ''}
                           onChange={(action, reason) => setReviewStatus(row.id, action, reason)}
                         />
                       </div>
@@ -550,7 +549,6 @@ function VolunteersTable() {
                             <ReviewStatusActions
                               compact
                               currentStatus={row.status}
-                              currentNote={row.reviewNote || ''}
                               onChange={(action, reason) => setReviewStatus(row.id, action, reason)}
                             />
                           </TableCell>

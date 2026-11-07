@@ -7,100 +7,123 @@ import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
-const NEEDS_REASON: AdminStatus[] = ['flagged', 'review'];
+const REASON_STATUSES: AdminStatus[] = ['flagged', 'review'];
 
 export function ReviewStatusActions({
   currentStatus,
-  currentNote = '',
   onChange,
   className,
   compact = false,
 }: {
   currentStatus?: AdminStatus | null;
-  currentNote?: string;
-  onChange: (status: AdminStatus, reason: string) => Promise<void> | void;
+  onChange: (status: AdminStatus | null, reason: string) => Promise<void> | void;
   className?: string;
   compact?: boolean;
 }) {
   const [reason, setReason] = useState('');
-  const [saving, setSaving] = useState<AdminStatus | null>(null);
+  const [selected, setSelected] = useState<AdminStatus | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  async function apply(status: AdminStatus) {
+  async function applyInstant(status: AdminStatus) {
+    setSelected(null);
+    setSaving(true);
+    try {
+      await onChange(status, '');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function submitReason() {
     const trimmed = reason.trim();
-    if (NEEDS_REASON.includes(status) && !trimmed) {
-      toast.error('Add a reason for review or flag.');
+    if (!trimmed) {
+      toast.error('Write a reason before submitting.');
       return;
     }
-    setSaving(status);
+    const status = selected && REASON_STATUSES.includes(selected) ? selected : null;
+    if (!status && !REASON_STATUSES.includes(currentStatus || 'pending')) {
+      toast.error('Choose Review or Flag, then submit the reason.');
+      return;
+    }
+    setSaving(true);
     try {
-      await onChange(status, trimmed);
+      await onChange(status ?? currentStatus ?? null, trimmed);
       setReason('');
+      setSelected(null);
     } finally {
-      setSaving(null);
+      setSaving(false);
     }
   }
 
   return (
-    <div className={cn('grid gap-2', className)}>
+    <div className={cn('grid gap-3', className)}>
       <div className={cn('flex flex-wrap gap-2', compact && 'gap-1.5')}>
         <Button
           size={compact ? 'sm' : 'default'}
           variant="secondary"
           className={compact ? undefined : 'h-11'}
-          disabled={Boolean(saving) || currentStatus === 'approved'}
-          onClick={() => void apply('approved')}
+          disabled={saving || currentStatus === 'approved'}
+          onClick={() => void applyInstant('approved')}
         >
-          {saving === 'approved' ? 'Saving…' : 'Approve'}
+          Approve
         </Button>
         <Button
           size={compact ? 'sm' : 'default'}
           variant="outline"
           className={compact ? undefined : 'h-11'}
-          disabled={Boolean(saving) || currentStatus === 'pending'}
-          onClick={() => void apply('pending')}
+          disabled={saving || currentStatus === 'pending'}
+          onClick={() => void applyInstant('pending')}
         >
-          {saving === 'pending' ? 'Saving…' : 'Pending'}
+          Pending
         </Button>
         <Button
           size={compact ? 'sm' : 'default'}
-          variant="outline"
+          variant={selected === 'review' ? 'secondary' : 'outline'}
           className={compact ? undefined : 'h-11'}
-          disabled={Boolean(saving)}
-          onClick={() => void apply('review')}
+          disabled={saving}
+          onClick={() => setSelected((current) => (current === 'review' ? null : 'review'))}
         >
-          {saving === 'review' ? 'Saving…' : 'Review'}
+          Review
         </Button>
         <Button
           size={compact ? 'sm' : 'default'}
-          variant="outline"
+          variant={selected === 'flagged' ? 'secondary' : 'outline'}
           className={compact ? undefined : 'h-11'}
-          disabled={Boolean(saving)}
-          onClick={() => void apply('flagged')}
+          disabled={saving}
+          onClick={() => setSelected((current) => (current === 'flagged' ? null : 'flagged'))}
         >
-          {saving === 'flagged' ? 'Saving…' : 'Flag'}
+          Flag
         </Button>
       </div>
 
       <div className="grid gap-1.5">
         <Label htmlFor="inline-review-reason" className="text-xs text-muted-foreground">
-          Reason for review / flag {currentNote ? '(previous note kept until you save a new one)' : ''}
+          {selected === 'flagged'
+            ? 'Reason for flag'
+            : selected === 'review'
+              ? 'Reason for review'
+              : 'Reason (choose Review or Flag, then submit)'}
         </Label>
-        <textarea
-          id="inline-review-reason"
-          value={reason}
-          onChange={(event) => setReason(event.target.value)}
-          rows={compact ? 2 : 3}
-          placeholder="Required when setting Review or Flag"
-          className={cn(
-            'w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus-visible:border-[#e7c15a]/50',
-            compact && 'rounded-md',
-          )}
-        />
-        {currentNote ? (
-          <p className="text-xs text-muted-foreground">
-            Previous: <span className="text-foreground/80">{currentNote}</span>
-          </p>
-        ) : null}
+        <div className={cn('flex gap-2', compact ? 'flex-col sm:flex-row' : 'flex-col sm:flex-row sm:items-start')}>
+          <textarea
+            id="inline-review-reason"
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            rows={compact ? 2 : 3}
+            placeholder="e.g. FAN photo unreadable, waiting for clearer ID…"
+            className={cn(
+              'min-w-0 flex-1 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus-visible:border-[#e7c15a]/50',
+              compact && 'rounded-md',
+            )}
+          />
+          <Button
+            className={cn(compact ? 'h-9 shrink-0' : 'h-11 shrink-0', !compact && 'sm:mt-0')}
+            disabled={saving || !reason.trim()}
+            onClick={() => void submitReason()}
+          >
+            {saving ? 'Saving…' : 'Submit reason'}
+          </Button>
+        </div>
       </div>
     </div>
   );

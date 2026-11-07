@@ -43,7 +43,7 @@ export function VolunteerPreviewDialog({
   volunteerId: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onStatusChange?: (id: string, action: AdminStatus, reason: string) => Promise<void> | void;
+  onStatusChange?: (id: string, action: AdminStatus | null, reason: string) => Promise<void> | void;
 }) {
   const [detail, setDetail] = useState<PreviewDetail | null>(null);
   const [loading, setLoading] = useState(false);
@@ -121,8 +121,15 @@ export function VolunteerPreviewDialog({
               {detail.status ? <StatusBadge status={detail.status} /> : null}
             </div>
 
+            {typeof detail.review_note === 'string' && detail.review_note.trim() ? (
+              <div className="rounded-xl border border-[#e7c15a]/35 bg-[#e7c15a]/10 px-3 py-2 text-sm">
+                <p className="text-xs font-medium uppercase tracking-wide text-[#e7c15a]">Review reason</p>
+                <p className="mt-1 whitespace-pre-wrap text-foreground">{detail.review_note}</p>
+              </div>
+            ) : null}
+
             <dl className="grid gap-2">
-              {STAFF_PREVIEW_FIELDS.map((field) => (
+              {STAFF_PREVIEW_FIELDS.filter((field) => field.key !== 'review_note').map((field) => (
                 <div
                   key={field.key}
                   className="grid grid-cols-[140px_1fr] gap-2 rounded-xl border border-white/10 px-3 py-2 text-sm"
@@ -136,12 +143,15 @@ export function VolunteerPreviewDialog({
             {onStatusChange ? (
               <ReviewStatusActions
                 currentStatus={detail.status}
-                currentNote={typeof detail.review_note === 'string' ? detail.review_note : ''}
                 onChange={async (status, reason) => {
                   await onStatusChange(detail.id, status, reason);
                   setDetail((current) =>
                     current
-                      ? { ...current, status, review_note: reason || current.review_note }
+                      ? {
+                          ...current,
+                          status: status ?? current.status,
+                          review_note: reason || current.review_note,
+                        }
                       : current,
                   );
                 }}

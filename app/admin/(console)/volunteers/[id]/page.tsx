@@ -443,17 +443,17 @@ function VolunteerDetailPageInner() {
     void load();
   }
 
-  async function setStatus(action: AdminStatus, reason: string) {
+  async function setStatus(action: AdminStatus | null, reason: string) {
     const response = await fetch(`/api/admin/registrations/${params.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, reason }),
+      body: JSON.stringify(action ? { action, reason } : { reason }),
     });
     if (!response.ok) {
-      toast.error('Could not update status.');
+      toast.error(action ? 'Could not update status.' : 'Could not save reason.');
       return;
     }
-    toast.success(`Status set to ${action}.`);
+    toast.success(action ? `Status set to ${action}.` : 'Reason saved.');
     void load();
   }
 
@@ -533,8 +533,20 @@ function VolunteerDetailPageInner() {
 
   const cohort = detail.cohortDetail;
 
+  const reviewNote =
+    typeof detail.review_note === 'string' && detail.review_note.trim()
+      ? detail.review_note.trim()
+      : '';
+
   return (
     <div className="grid gap-4">
+      {reviewNote ? (
+        <div className="rounded-xl border border-[#e7c15a]/35 bg-[#e7c15a]/10 px-4 py-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-[#e7c15a]">Review reason</p>
+          <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{reviewNote}</p>
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Link href={volunteersHref} className={cn(buttonVariants({ variant: 'ghost' }), 'mb-2 h-9 px-0')}>
@@ -597,25 +609,14 @@ function VolunteerDetailPageInner() {
           <CardHeader>
             <CardTitle>Review status</CardTitle>
             <CardDescription>
-              Approve or set pending instantly. Add a reason below before Review or Flag.
+              Approve or set pending instantly. For Review or Flag, choose the status, write a reason, then submit.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <ReviewStatusActions
               currentStatus={detail.status}
-              currentNote={typeof detail.review_note === 'string' ? detail.review_note : ''}
               onChange={setStatus}
             />
-          </CardContent>
-        </Card>
-      ) : typeof detail.review_note === 'string' && detail.review_note.trim() ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Latest review note</CardTitle>
-            <CardDescription>Reason left when status was last changed.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="whitespace-pre-wrap text-sm text-foreground">{String(detail.review_note)}</p>
           </CardContent>
         </Card>
       ) : null}
