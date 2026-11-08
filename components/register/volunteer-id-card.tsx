@@ -4,11 +4,13 @@ import { User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { CphiaLogo } from '@/components/brand/cphia-logo';
 import type { VolunteerBadge } from '@/app/register/lib/badge';
+import { cn } from '@/lib/utils';
 
 export function VolunteerIdCard({
   badge,
   photoUrl,
   title,
+  className,
   onEdit,
   onDownload,
   onCopy,
@@ -17,13 +19,14 @@ export function VolunteerIdCard({
   badge: VolunteerBadge;
   photoUrl: string | null;
   title?: string;
+  className?: string;
   onEdit?: () => void;
   onDownload?: () => void;
   onCopy?: () => void;
   onShare?: () => void;
 }) {
   return (
-    <article className="overflow-hidden rounded-2xl border bg-card text-card-foreground shadow-sm ring-1 ring-foreground/10">
+    <article className={cn('overflow-hidden rounded-2xl border bg-card text-card-foreground shadow-sm ring-1 ring-foreground/10', className)}>
       <header className="flex items-center justify-between gap-3 border-b bg-background px-4 py-3">
         <div className="grid gap-1">
           <CphiaLogo className="h-10 w-auto max-w-[190px] object-contain object-left" />

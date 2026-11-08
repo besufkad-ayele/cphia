@@ -7,6 +7,11 @@ import { HEALTH_SUBSECTORS, SECTORS } from '@cphia/shared/constants';
 import type { DemographicsSummary } from '@/app/lib/admin/demographics';
 import type { RegistrationMetrics, RegistrationSummary } from '@/app/lib/admin/types';
 import { adminFetch } from '@/app/lib/admin/messages';
+import {
+  overviewCacheKey,
+  readOverviewCache,
+  writeOverviewCache,
+} from '@/app/lib/admin/dashboard-cache';
 import { hasCapability, hasFeature } from '@/app/lib/admin/permissions';
 import { useConnectionStatus } from '@/components/admin/connection-status';
 import { DashboardDemographics } from '@/components/admin/dashboard-charts';
@@ -74,7 +79,17 @@ export default function AdminDashboardPage() {
     let controller: AbortController | null = null;
     let slowTimer: ReturnType<typeof setTimeout> | null = null;
     let loadedOnce = false;
-    hasDataRef.current = false;
+    const cacheKey = overviewCacheKey(sector, subsector);
+    const cached = readOverviewCache<Overview>(cacheKey);
+    if (cached) {
+      setData(cached);
+      hasDataRef.current = true;
+      loadedOnce = true;
+      setLoading(false);
+      setError(null);
+    } else {
+      hasDataRef.current = false;
+    }
 
     async function load(initial: boolean) {
       // Use a local busy flag (not a remount-surviving ref) so React Strict Mode
@@ -98,11 +113,15 @@ export default function AdminDashboardPage() {
       if (subsector) params.set('subsector', subsector);
 
       try {
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          throw new Error('OFFLINE');
+        }
         const next = await adminFetch<Overview>(`/api/admin/overview?${params}`, { signal });
         if (cancelled || signal.aborted) return;
         loadedOnce = true;
         hasDataRef.current = true;
         setData(next);
+        writeOverviewCache(cacheKey, next);
         setError(null);
         setNotice(null);
       } catch (reason) {
@@ -111,12 +130,19 @@ export default function AdminDashboardPage() {
           (reason instanceof DOMException && reason.name === 'AbortError') ||
           (reason instanceof Error && reason.name === 'AbortError');
         if (isAbort) return;
-        const message = reason instanceof Error ? reason.message : 'Could not sync dashboard.';
-        if (initial || !hasDataRef.current) {
-          setError(message);
-          setNotice(null);
+        const offline =
+          (typeof navigator !== 'undefined' && !navigator.onLine) ||
+          (reason instanceof Error && reason.message === 'OFFLINE');
+        if (hasDataRef.current || cached) {
+          setNotice(
+            offline
+              ? 'Offline — showing last saved dashboard numbers.'
+              : 'Sync delayed — retrying with current numbers on screen.',
+          );
+          setError(null);
         } else {
-          setNotice('Sync delayed — retrying with current numbers on screen.');
+          setError(offline ? 'No connection and no cached dashboard yet.' : reason instanceof Error ? reason.message : 'Could not sync dashboard.');
+          setNotice(null);
         }
       } finally {
         if (slowTimer) {
@@ -133,11 +159,17 @@ export default function AdminDashboardPage() {
       void load(false);
     }, POLL_MS);
 
+    function onOnline() {
+      void load(false);
+    }
+    window.addEventListener('online', onOnline);
+
     return () => {
       cancelled = true;
       controller?.abort();
       if (slowTimer) clearTimeout(slowTimer);
       window.clearInterval(timer);
+      window.removeEventListener('online', onOnline);
       setNotice(null);
     };
   }, [sector, subsector, setNotice]);

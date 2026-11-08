@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { STAFF_PREVIEW_FIELDS } from '@/app/lib/admin/types';
 import type { AdminStatus } from '@/app/lib/admin/status';
+import { ImageLightbox } from '@/components/admin/image-lightbox';
 import { ReviewCommentsCard } from '@/components/admin/review-comments-card';
 import { ReviewStatusActions } from '@/components/admin/review-status-actions';
 import { StatusBadge } from '@/components/admin/status-badge';
@@ -55,6 +56,7 @@ export function VolunteerPreviewDialog({
   const [detail, setDetail] = useState<PreviewDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
 
   useEffect(() => {
     if (!open || !volunteerId) return;
@@ -107,11 +109,18 @@ export function VolunteerPreviewDialog({
         {!loading && detail ? (
           <div className="grid gap-4">
             {detail.photoUrl && !isPdfUrl(detail.photoUrl) ? (
-              <img
-                src={detail.photoUrl}
-                alt={title}
-                className="mx-auto h-40 w-32 rounded-xl object-cover ring-1 ring-white/10"
-              />
+              <button
+                type="button"
+                className="mx-auto block overflow-hidden rounded-xl ring-1 ring-white/10 transition hover:ring-[#e7c15a]/50"
+                onClick={() => setLightbox({ src: detail.photoUrl!, alt: title })}
+                aria-label="Open volunteer photo"
+              >
+                <img
+                  src={detail.photoUrl}
+                  alt={title}
+                  className="h-28 w-[5.5rem] object-cover sm:h-36 sm:w-28"
+                />
+              </button>
             ) : detail.photoUrl ? (
               <a
                 href={detail.photoUrl}
@@ -187,6 +196,12 @@ export function VolunteerPreviewDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+      <ImageLightbox
+        open={Boolean(lightbox)}
+        src={lightbox?.src ?? null}
+        alt={lightbox?.alt}
+        onClose={() => setLightbox(null)}
+      />
     </Dialog>
   );
 }

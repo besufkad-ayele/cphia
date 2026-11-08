@@ -30,6 +30,7 @@ import {
 } from '@/app/lib/uploads';
 import { prepareUploadFile } from '@/app/lib/prepare-upload';
 import { ExportColumnsDialog } from '@/components/admin/export-columns-dialog';
+import { ImageLightbox } from '@/components/admin/image-lightbox';
 import { ReviewCommentsCard } from '@/components/admin/review-comments-card';
 import { ReviewStatusActions } from '@/components/admin/review-status-actions';
 import { StatusBadge } from '@/components/admin/status-badge';
@@ -182,6 +183,7 @@ function ImageEditor({
   onUpload,
   onRemove,
   onDownload,
+  onPreview,
 }: {
   label: string;
   url?: string | null;
@@ -191,6 +193,7 @@ function ImageEditor({
   onUpload: (file: File) => Promise<void>;
   onRemove: () => Promise<void>;
   onDownload?: () => void;
+  onPreview?: (src: string, alt: string) => void;
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [localPreview, setLocalPreview] = useState<string | null>(null);
@@ -221,7 +224,18 @@ function ImageEditor({
         {busy ? <span className="text-xs text-muted-foreground">Updating…</span> : null}
       </div>
       {preview && !isPdf ? (
-        <img src={preview} alt={label} className="w-full rounded-lg object-cover" />
+        <button
+          type="button"
+          className="mx-auto block w-full max-w-[140px] overflow-hidden rounded-lg ring-1 ring-white/10 transition hover:ring-[#e7c15a]/50 sm:max-w-[180px] lg:max-w-none lg:w-full"
+          onClick={() => onPreview?.(preview, label)}
+          aria-label={`Open ${label}`}
+        >
+          <img
+            src={preview}
+            alt={label}
+            className="aspect-[3/4] w-full object-cover lg:aspect-auto lg:max-h-56"
+          />
+        </button>
       ) : preview ? (
         <a
           href={preview}
@@ -325,6 +339,7 @@ function VolunteerDetailPageInner() {
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [imageBusy, setImageBusy] = useState<Record<string, boolean>>({});
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [selectedColumns, setSelectedColumns] = useState<string[]>([
     ...EXPORT_COLUMNS.map((column) => column.id),
@@ -684,6 +699,7 @@ function VolunteerDetailPageInner() {
                 accept={slot.accept}
                 hint={slot.requiredHint}
                 busy={Boolean(imageBusy[slot.key])}
+                onPreview={(src, alt) => setLightbox({ src, alt })}
                 onDownload={detail[slot.urlKey] ? () => downloadAsset(slot.key) : undefined}
                 onUpload={async (file) => {
                   try {
@@ -806,6 +822,13 @@ function VolunteerDetailPageInner() {
           </CardContent>
         </Card>
       </div>
+
+      <ImageLightbox
+        open={Boolean(lightbox)}
+        src={lightbox?.src ?? null}
+        alt={lightbox?.alt}
+        onClose={() => setLightbox(null)}
+      />
 
       <ExportColumnsDialog
         open={exportOpen}

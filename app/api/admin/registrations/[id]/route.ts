@@ -129,8 +129,12 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const gate = await requireFeature(request, 'volunteers');
-  if (!gate.ok) return gate.error;
+  // Floor attendance staff need the ID card even without full volunteers access.
+  const volunteersGate = await requireFeature(request, 'volunteers');
+  const attendanceGate = volunteersGate.ok ? null : await requireFeature(request, 'attendance');
+  if (!volunteersGate.ok && !attendanceGate?.ok) {
+    return volunteersGate.error;
+  }
 
   const { id } = await params;
   const supabase = getSupabaseAdmin();

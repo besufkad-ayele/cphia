@@ -6,10 +6,15 @@ import { toast } from 'sonner';
 import { ATTENDANCE_STATUSES, type AttendanceStatus } from '@/app/lib/admin/ops';
 import { adminFetch } from '@/app/lib/admin/messages';
 import { formatVolunteerName } from '@/app/lib/admin/types';
+import {
+  AttendanceIdentityPanel,
+  AttendanceIdentitySheet,
+} from '@/components/admin/attendance-identity-dialog';
 import { Banner, controlClass, PageHeader } from '@/components/admin/console';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { cn } from '@/lib/utils';
 
 type Shift = {
   id: string;
@@ -91,6 +96,7 @@ function AttendanceDesk() {
   const [tab, setTab] = useState<SheetTab>('waiting');
   const [approved, setApproved] = useState<Person[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [identityId, setIdentityId] = useState<string | null>(null);
   const approvedLoaded = useRef(false);
 
   async function loadShift(nextShiftId: string) {
@@ -206,7 +212,7 @@ function AttendanceDesk() {
         description="Waiting tab stays on absents. After you mark present / late / excused they move to Checked in. Search works on both."
       />
       <Banner message={error} />
-      <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
+      <div className="grid gap-4 lg:grid-cols-[240px_minmax(0,1fr)_minmax(320px,380px)]">
         <Card>
           <CardHeader><CardTitle>Shifts</CardTitle></CardHeader>
           <CardContent className="grid gap-2">
@@ -217,7 +223,7 @@ function AttendanceDesk() {
                 <button
                   key={shift.id}
                   type="button"
-                  onClick={() => { setShiftId(shift.id); setTab('waiting'); setQuery(''); }}
+                  onClick={() => { setShiftId(shift.id); setTab('waiting'); setQuery(''); setIdentityId(null); }}
                   className={`rounded-2xl border px-3 py-3 text-left text-sm ${shift.id === shiftId ? 'border-[#e7c15a]/50 bg-[#e7c15a]/10' : 'border-white/10 bg-black/25'}`}
                 >
                   <p className="font-medium text-white">{shift.name}</p>
@@ -231,7 +237,7 @@ function AttendanceDesk() {
             {shifts.length === 0 ? <p className="text-sm text-zinc-400">No shifts yet. Create one under Shifts.</p> : null}
           </CardContent>
         </Card>
-        <Card>
+        <Card className="overflow-visible">
           <CardHeader>
             <CardTitle>{selected ? selected.name : 'Select a shift'}</CardTitle>
             {selected ? (
@@ -262,43 +268,58 @@ function AttendanceDesk() {
               ))}
             </div>
 
-            <div className="grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-black/20 p-1">
-              <button
-                type="button"
-                onClick={() => setTab('waiting')}
-                className={`rounded-xl px-3 py-2 text-sm font-medium transition ${tab === 'waiting' ? 'bg-[#e7c15a]/15 text-[#e7c15a]' : 'text-zinc-300 hover:bg-white/5'}`}
-              >
-                Waiting · {waitingCount}
-              </button>
-              <button
-                type="button"
-                onClick={() => setTab('checked_in')}
-                className={`rounded-xl px-3 py-2 text-sm font-medium transition ${tab === 'checked_in' ? 'bg-[#e7c15a]/15 text-[#e7c15a]' : 'text-zinc-300 hover:bg-white/5'}`}
-              >
-                Checked in · {checkedInCount}
-              </button>
-            </div>
+            <div className="sticky top-14 z-10 -mx-(--card-spacing) grid gap-3 border-b border-white/10 bg-[rgba(12,12,14,0.94)] px-(--card-spacing) py-3 backdrop-blur-xl">
+              <div className="grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-black/35 p-1">
+                <button
+                  type="button"
+                  onClick={() => setTab('waiting')}
+                  className={`rounded-xl px-3 py-2 text-sm font-medium transition ${tab === 'waiting' ? 'bg-[#e7c15a]/15 text-[#e7c15a]' : 'text-zinc-300 hover:bg-white/5'}`}
+                >
+                  Waiting · {waitingCount}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTab('checked_in')}
+                  className={`rounded-xl px-3 py-2 text-sm font-medium transition ${tab === 'checked_in' ? 'bg-[#e7c15a]/15 text-[#e7c15a]' : 'text-zinc-300 hover:bg-white/5'}`}
+                >
+                  Checked in · {checkedInCount}
+                </button>
+              </div>
 
-            <input
-              className={controlClass}
-              value={query}
-              placeholder="Search both tabs: name · ID · phone"
-              onChange={(event) => setQuery(event.target.value)}
-              disabled={!shiftId || locked}
-            />
+              <input
+                className={controlClass}
+                value={query}
+                placeholder="Search both tabs: name · ID · phone"
+                onChange={(event) => setQuery(event.target.value)}
+                disabled={!shiftId || locked}
+              />
+            </div>
 
             {query.trim() && searchHits.length > 0 ? (
               <div className="grid gap-2">
                 <p className="text-xs uppercase tracking-wide text-[#e7c15a]">Search results</p>
                 {searchHits.map(({ person, row }) => (
-                  <div key={person.id} className="grid gap-2 rounded-2xl border border-[#e7c15a]/30 bg-[#e7c15a]/5 px-3 py-3">
-                    <div className="min-w-0">
+                  <div
+                    key={person.id}
+                    className={cn(
+                      'grid gap-2 rounded-2xl border px-3 py-3',
+                      identityId === person.id
+                        ? 'border-[#e7c15a]/60 bg-[#e7c15a]/10'
+                        : 'border-[#e7c15a]/30 bg-[#e7c15a]/5',
+                    )}
+                  >
+                    <button
+                      type="button"
+                      className="min-w-0 rounded-xl text-left transition hover:bg-white/5"
+                      onClick={() => setIdentityId(person.id)}
+                    >
                       <p className="truncate text-sm text-white">{formatVolunteerName(person)}</p>
                       <p className="text-xs text-zinc-400">
                         {person.registration_id} · {person.sector}
                         {row ? ` · ${row.status}` : ' · not on sheet yet'}
+                        <span className="ml-1 text-[#e7c15a]">· tap for ID</span>
                       </p>
-                    </div>
+                    </button>
                     <div className="grid grid-cols-2 gap-1 sm:grid-cols-4">
                       {ATTENDANCE_STATUSES.map((status) => (
                         <Button
@@ -327,12 +348,29 @@ function AttendanceDesk() {
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {visibleRows.map((row) => {
                 const person = one(row.registrations);
+                const selected = Boolean(person && identityId === person.id);
                 return (
-                  <div key={row.id} className="grid gap-2 rounded-2xl border border-white/10 bg-black/25 px-3 py-3">
-                    <div className="min-w-0">
+                  <div
+                    key={row.id}
+                    className={cn(
+                      'grid gap-2 rounded-2xl border px-3 py-3',
+                      selected
+                        ? 'border-[#e7c15a]/50 bg-[#e7c15a]/10'
+                        : 'border-white/10 bg-black/25',
+                    )}
+                  >
+                    <button
+                      type="button"
+                      className="min-w-0 rounded-xl text-left transition hover:bg-white/5 disabled:cursor-default"
+                      disabled={!person}
+                      onClick={() => person && setIdentityId(person.id)}
+                    >
                       <p className="truncate text-sm font-medium text-white">{person ? formatVolunteerName(person) : 'Volunteer'}</p>
-                      <p className="text-xs text-zinc-400">{person?.registration_id} · {person?.sector} · {row.status}</p>
-                    </div>
+                      <p className="text-xs text-zinc-400">
+                        {person?.registration_id} · {person?.sector} · {row.status}
+                        {person ? <span className="ml-1 text-[#e7c15a]">· tap for ID</span> : null}
+                      </p>
+                    </button>
                     <div className="grid grid-cols-2 gap-1">
                       {ATTENDANCE_STATUSES.map((status) => (
                         <Button
@@ -362,7 +400,20 @@ function AttendanceDesk() {
             </div>
           </CardContent>
         </Card>
+
+        <AttendanceIdentityPanel
+          volunteerId={identityId}
+          onClose={() => setIdentityId(null)}
+        />
       </div>
+
+      <AttendanceIdentitySheet
+        volunteerId={identityId}
+        open={Boolean(identityId)}
+        onOpenChange={(open) => {
+          if (!open) setIdentityId(null);
+        }}
+      />
     </div>
   );
 }
