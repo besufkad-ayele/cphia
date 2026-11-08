@@ -40,6 +40,12 @@ export function ImageField({
     ? `${Math.round(photo.size / 1024)} KB · max ${MAX_UPLOAD_LABEL}`
     : `Max ${MAX_UPLOAD_LABEL}`;
 
+  function pick(file: File | null, input: HTMLInputElement | null) {
+    onUpload(file);
+    // Allow re-selecting the same PDF/file on mobile.
+    if (input) input.value = '';
+  }
+
   return (
     <Field id={id} label={label} hint={hint ? `${hint} ${formatHint}` : formatHint} error={error}>
       <PhotoUpload
@@ -53,8 +59,21 @@ export function ImageField({
         onChoose={() => chooseRef.current?.click()}
         onRemove={onRemove}
       />
-      <input ref={takeRef} className="hidden" type="file" accept={IMAGE_ACCEPT} capture={capture} onChange={(event) => onUpload(event.target.files?.[0] ?? null)} />
-      <input ref={chooseRef} className="hidden" type="file" accept={allowPdf ? DOCUMENT_ACCEPT : IMAGE_ACCEPT} onChange={(event) => onUpload(event.target.files?.[0] ?? null)} />
+      <input
+        ref={takeRef}
+        className="hidden"
+        type="file"
+        accept={IMAGE_ACCEPT}
+        capture={capture}
+        onChange={(event) => pick(event.target.files?.[0] ?? null, event.target)}
+      />
+      <input
+        ref={chooseRef}
+        className="hidden"
+        type="file"
+        accept={allowPdf ? DOCUMENT_ACCEPT : IMAGE_ACCEPT}
+        onChange={(event) => pick(event.target.files?.[0] ?? null, event.target)}
+      />
     </Field>
   );
 }

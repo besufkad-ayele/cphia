@@ -1,6 +1,5 @@
 'use client';
 
-import Image from 'next/image';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
@@ -31,9 +30,16 @@ import {
 import { AttendanceFlag } from '@/components/admin/attendance-flag';
 import { ConnectionStatusProvider, useConnectionStatus } from '@/components/admin/connection-status';
 import { AdminMobileDock } from '@/components/admin/mobile-dock';
+import { CphiaLogo, CphiaMark } from '@/components/brand/cphia-logo';
 import { Button } from '@/components/ui/button';
+import { requestBrandTransition } from '@/app/lib/brand-transition';
 import { href } from '@/lib/app-href';
 import { cn } from '@/lib/utils';
+
+function triggerDashboardGate(pathname: string) {
+  if (pathname === '/admin') return;
+  requestBrandTransition({ label: 'Loading dashboard' });
+}
 
 const ICONS = {
   dashboard: LayoutDashboard,
@@ -101,12 +107,16 @@ function AdminShellInner({
           : items.map((item) => {
               const active = item.href === '/admin' ? pathname === '/admin' : pathname.startsWith(item.href);
               const Icon = ICONS[item.key];
+              const isDashboard = item.href === '/admin';
               return (
                 <Link
                   key={item.href}
                   href={href(item.href)}
                   title={item.label}
                   aria-current={active ? 'page' : undefined}
+                  onClick={() => {
+                    if (isDashboard) triggerDashboardGate(pathname);
+                  }}
                   className={cn(
                     'flex rounded-2xl text-sm transition',
                     detailed ? 'items-start gap-3 px-3 py-2.5' : 'size-11 items-center justify-center',
@@ -141,25 +151,22 @@ function AdminShellInner({
       >
         <div className={cn('flex items-center border-b border-white/10', expanded ? 'justify-between gap-2 px-3 py-3' : 'justify-center px-3 py-4')}>
           {expanded ? (
-            <Link href={href('/admin')} className="min-w-0 flex-1 rounded-xl px-1 py-1 transition hover:bg-white/5" aria-label="CPHIA dashboard">
-              <Image
-                src="/cphia-logo.png"
-                alt="CPHIA"
-                width={200}
-                height={66}
-                className="h-11 w-auto max-w-full object-contain object-left"
+            <div className="min-w-0 flex-1 rounded-xl px-1 py-1 transition hover:bg-white/5">
+              <CphiaLogo
+                href={href('/admin')}
                 priority
+                onClick={() => triggerDashboardGate(pathname)}
+                className="h-11 w-auto max-w-full object-contain object-left"
+                alt="CPHIA dashboard"
               />
-            </Link>
+            </div>
           ) : (
-            <Link
+            <CphiaMark
               href={href('/admin')}
-              className="grid size-10 place-items-center rounded-2xl border border-[#e7c15a]/40 bg-[#e7c15a]/10 text-sm font-semibold text-[#e7c15a] transition hover:bg-[#e7c15a]/20"
-              aria-label="CPHIA dashboard"
-              title="Dashboard"
-            >
-              C
-            </Link>
+              priority
+              onClick={() => triggerDashboardGate(pathname)}
+              className="size-11 rounded-2xl border border-[#e7c15a]/35 bg-black/30 p-1.5 transition hover:border-[#e7c15a]/60 hover:bg-[#e7c15a]/10"
+            />
           )}
           {expanded ? (
             <Button variant="ghost" size="icon" className="shrink-0 text-zinc-300" onClick={toggleExpanded} aria-label="Show icons only">
@@ -237,6 +244,9 @@ function AdminShellInner({
             href: item.href,
             icon: ICONS[item.key],
           }))}
+          onItemNavigate={(item) => {
+            if (item.href === '/admin') triggerDashboardGate(pathname);
+          }}
           onMore={items.filter((item) => item.key !== 'attendance').length > 4 ? () => setMenuOpen(true) : undefined}
         />
       </div>
@@ -246,17 +256,19 @@ function AdminShellInner({
           <button type="button" className="absolute inset-0 bg-black/70" aria-label="Close menu" onClick={() => setMenuOpen(false)} />
           <div className="absolute inset-y-0 left-0 flex w-[min(100%,320px)] flex-col border-r border-white/10 bg-black/80 p-4 backdrop-blur-2xl">
             <div className="mb-4 flex items-center justify-between gap-3">
-              <Link href={href('/admin')} className="min-w-0 flex-1" onClick={() => setMenuOpen(false)} aria-label="CPHIA dashboard">
-                <Image
-                  src="/cphia-logo.png"
-                  alt="CPHIA"
-                  width={200}
-                  height={66}
-                  className="h-10 w-auto max-w-full object-contain object-left"
+              <div className="min-w-0 flex-1">
+                <CphiaLogo
+                  href={href('/admin')}
                   priority
+                  onClick={() => {
+                    triggerDashboardGate(pathname);
+                    setMenuOpen(false);
+                  }}
+                  className="h-10 w-auto max-w-full object-contain object-left"
+                  alt="CPHIA dashboard"
                 />
                 <p className="mt-2 truncate text-sm text-white">{name}</p>
-              </Link>
+              </div>
               <Button variant="ghost" size="icon" onClick={() => setMenuOpen(false)} aria-label="Close menu">
                 <X />
               </Button>

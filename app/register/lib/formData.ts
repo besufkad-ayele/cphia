@@ -98,24 +98,26 @@ export function buildRegistrationFormData(
   if (extras?.deviceFingerprintHash) {
     formData.append('deviceFingerprintHash', extras.deviceFingerprintHash);
   }
-  if (photo) {
-    formData.append('photo', photo.blob, photo.fileName);
+  function appendStored(key: string, stored: StoredPhoto) {
+    const mime =
+      stored.type
+      || (/\.pdf$/i.test(stored.fileName) ? 'application/pdf' : 'image/jpeg');
+    const file =
+      stored.blob instanceof File && stored.blob.type
+        ? stored.blob
+        : new File([stored.blob], stored.fileName || 'upload.bin', {
+            type: mime,
+            lastModified: Date.now(),
+          });
+    formData.append(key, file, stored.fileName || file.name);
   }
-  if (extras?.ureportScreenshot) {
-    formData.append('ureportScreenshot', extras.ureportScreenshot.blob, extras.ureportScreenshot.fileName);
-  }
-  if (extras?.fanPhoto) {
-    formData.append('fanPhoto', extras.fanPhoto.blob, extras.fanPhoto.fileName);
-  }
-  if (extras?.fanPhotoBack) {
-    formData.append('fanPhotoBack', extras.fanPhotoBack.blob, extras.fanPhotoBack.fileName);
-  }
-  if (extras?.secondIdPhoto) {
-    formData.append('secondIdPhoto', extras.secondIdPhoto.blob, extras.secondIdPhoto.fileName);
-  }
-  if (extras?.bankOwnerIdPhoto) {
-    formData.append('bankOwnerIdPhoto', extras.bankOwnerIdPhoto.blob, extras.bankOwnerIdPhoto.fileName);
-  }
+
+  if (photo) appendStored('photo', photo);
+  if (extras?.ureportScreenshot) appendStored('ureportScreenshot', extras.ureportScreenshot);
+  if (extras?.fanPhoto) appendStored('fanPhoto', extras.fanPhoto);
+  if (extras?.fanPhotoBack) appendStored('fanPhotoBack', extras.fanPhotoBack);
+  if (extras?.secondIdPhoto) appendStored('secondIdPhoto', extras.secondIdPhoto);
+  if (extras?.bankOwnerIdPhoto) appendStored('bankOwnerIdPhoto', extras.bankOwnerIdPhoto);
 
   return formData;
 }

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { Inter, Roboto } from 'next/font/google';
 import { ThemeProvider } from 'next-themes';
+import { BrandTransitionGate } from '@/components/brand/brand-transition-gate';
 import { cn } from '@/lib/utils';
 import { Toaster } from '@/components/ui/sonner';
 
@@ -22,8 +23,8 @@ export const metadata: Metadata = {
   title: 'CPHIA Volunteer Registration',
   description: 'Facility Volunteer Training registration system',
   icons: {
-    icon: '/cphia%20logo.png',
-    apple: '/cphia%20logo.png',
+    icon: '/cphia-africa-logo.png',
+    apple: '/cphia-2026-logo.png',
   },
 };
 
@@ -36,9 +37,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={cn('font-sans', inter.variable, roboto.variable)} suppressHydrationWarning>
-      <body>
+      <body suppressHydrationWarning>
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
           {children}
+          <BrandTransitionGate />
           <Toaster />
         </ThemeProvider>
       </body>

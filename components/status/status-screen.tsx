@@ -23,9 +23,9 @@ export function StatusScreen({
         className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(45,174,149,0.5),transparent_52%)]"
       />
       <div className="relative z-10 w-full max-w-lg text-center">
-        <Link href="/" className="mx-auto inline-flex rounded-xl bg-white px-3 py-2 shadow-sm">
-          <CphiaLogo className="h-10 w-auto max-w-[180px] object-contain sm:h-12 sm:max-w-[220px]" />
-        </Link>
+        <div className="mx-auto inline-flex">
+          <CphiaLogo href="/" className="h-10 w-auto max-w-[180px] object-contain sm:h-12 sm:max-w-[220px]" />
+        </div>
         <p className="mt-8 text-xs font-semibold tracking-[0.2em] text-[#F5C518] uppercase">{code}</p>
         <h1 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">{title}</h1>
         <p className="mt-3 text-base leading-7 text-white/80">{description}</p>

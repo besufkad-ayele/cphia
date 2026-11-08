@@ -5,6 +5,8 @@ import {
   MAX_UPLOAD_BYTES,
   MAX_UPLOAD_LABEL,
   isLikelyHeic,
+  isPdfBytes,
+  isPdfFileName,
   resolveUploadMime,
   type UploadInspectResult,
 } from '@/app/lib/uploads';
@@ -98,7 +100,29 @@ export async function prepareUploadFile(
   let convertedFromHeic = false;
 
   try {
-    const head = new Uint8Array(await file.slice(0, 1024).arrayBuffer());
+    const head = new Uint8Array(await file.slice(0, 8192).arrayBuffer());
+    const looksPdf =
+      !options?.imagesOnly
+      && (isPdfFileName(file.name) || /pdf/i.test(file.type || '') || isPdfBytes(head));
+
+    // Short-circuit PDFs before any image/HEIC conversion path.
+    if (looksPdf) {
+      const named = isPdfFileName(file.name)
+        ? (file.type === 'application/pdf'
+          ? file
+          : new File([file], file.name, { type: 'application/pdf', lastModified: file.lastModified }))
+        : new File([file], `${(file.name || 'document').replace(/\.[^.]+$/, '') || 'document'}.pdf`, {
+            type: 'application/pdf',
+            lastModified: file.lastModified,
+          });
+      return {
+        file: named,
+        mime: 'application/pdf',
+        extension: 'pdf',
+        convertedFromHeic: false,
+      };
+    }
+
     if (isLikelyHeic(file, head)) {
       try {
         working = await convertHeicToJpeg(file);

@@ -334,7 +334,7 @@ export default function AdminDashboardPage() {
           <CardContent className="grid gap-2">
             {loading ? <Skeleton className="h-16 w-full" /> : null}
             {(data?.todayBoard ?? []).map((shift) => (
-              <Link key={shift.id} href={href('/admin/attendance')} className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/25 px-3 py-3 text-sm hover:bg-white/5">
+              <Link key={shift.id} href={href(`/admin/attendance?shiftId=${shift.id}`)} className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/25 px-3 py-3 text-sm hover:bg-white/5">
                 <div>
                   <p className="font-medium text-white">{shift.name}</p>
                   <p className="text-xs text-zinc-400">{shift.cohort} · {shift.start}–{shift.end} · {shift.location}</p>

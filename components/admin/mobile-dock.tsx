@@ -54,6 +54,7 @@ export function AdminMobileDock({
   pathname,
   loading,
   onMore,
+  onItemNavigate,
   priority = ['dashboard', 'volunteers', 'floor', 'shifts'],
   excludeKeys = ['attendance'],
 }: {
@@ -61,6 +62,7 @@ export function AdminMobileDock({
   pathname: string;
   loading?: boolean;
   onMore?: () => void;
+  onItemNavigate?: (item: DockItem) => void;
   priority?: string[];
   /** Modules shown elsewhere on mobile (e.g. attendance flag). */
   excludeKeys?: string[];
@@ -151,6 +153,7 @@ export function AdminMobileDock({
                       pressed === item.key && 'is-pressed',
                     )}
                     style={{ animationDelay: `${80 + index * 55}ms` }}
+                    onClick={() => onItemNavigate?.(item)}
                     onPointerDown={() => setPressed(item.key)}
                     onPointerUp={() => setPressed(null)}
                     onPointerLeave={() => setPressed(null)}

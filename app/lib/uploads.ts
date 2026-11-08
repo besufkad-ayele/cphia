@@ -8,8 +8,9 @@ export const MAX_UPLOAD_LABEL = '20 MB';
  */
 export const IMAGE_ACCEPT =
   'image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif';
+/** Broad accept list — long MIME lists break PDF picking on some Android/iOS browsers. */
 export const DOCUMENT_ACCEPT =
-  `${IMAGE_ACCEPT},application/pdf,application/x-pdf,.pdf`;
+  'image/*,application/pdf,application/x-pdf,.pdf,.jpg,.jpeg,.png,.webp,.heic,.heif';
 
 const IMAGE_MIMES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
 const PDF_MIMES = new Set(['application/pdf', 'application/x-pdf']);
@@ -71,7 +72,10 @@ export function isPdfFileName(name?: string | null) {
 
 /** iPhone gallery photos are often HEIC — convert client-side before upload. */
 export function isLikelyHeic(file: { name?: string; type?: string }, bytes?: Uint8Array) {
+  // Never treat PDFs as HEIC (filename or magic bytes).
+  if (isPdfFileName(file.name) || (bytes && isPdfBytes(bytes))) return false;
   const type = (file.type || '').toLowerCase().trim();
+  if (PDF_MIMES.has(type)) return false;
   if (HEIC_MIMES.has(type)) return true;
   if (/\.(heic|heif)$/i.test(file.name || '')) return true;
   if (!bytes || bytes.length < 12) return false;
@@ -118,24 +122,30 @@ export function resolveUploadMime(
   const declaredImage = IMAGE_MIMES.has(declared);
   const looseType = LOOSE_BINARY.has(declared);
 
-  if (isLikelyHeic(file, bytes)) return { error: 'HEIC_UNSUPPORTED' };
-
   if (options?.imagesOnly) {
+    if (isLikelyHeic(file, bytes)) return { error: 'HEIC_UNSUPPORTED' };
     if (imageMime) return { mime: imageMime, extension: extensionForMime(imageMime) };
     return { error: 'INVALID_PHOTO' };
   }
 
-  // Prefer magic bytes — most reliable across phones/browsers.
-  if (pdfBytes) return { mime: 'application/pdf', extension: 'pdf' };
-  if (imageMime) return { mime: imageMime, extension: extensionForMime(imageMime) };
-
-  // Fallback when signature is odd but the browser/filename clearly say PDF.
-  if (pdfName && (declaredPdf || looseType)) {
+  // PDF first — phones often send empty/octet-stream types for Files app PDFs.
+  if (pdfBytes || declaredPdf || pdfName) {
     return { mime: 'application/pdf', extension: 'pdf' };
   }
+
+  if (isLikelyHeic(file, bytes)) return { error: 'HEIC_UNSUPPORTED' };
+
+  // Prefer magic bytes — most reliable across phones/browsers.
+  if (imageMime) return { mime: imageMime, extension: extensionForMime(imageMime) };
+
   if (declaredImage && looksLikeImage(bytes)) {
     const mime = declared === 'image/jpg' ? 'image/jpeg' : declared;
     return { mime, extension: extensionForMime(mime) };
+  }
+
+  // Last resort: loose binary with no name still fails.
+  if (looseType && looksLikeImage(bytes)) {
+    return { mime: 'image/jpeg', extension: 'jpg' };
   }
 
   return { error: 'INVALID_PHOTO' };

@@ -318,8 +318,10 @@ function RegisterScreen() {
       localStorage.setItem(SUBMITTED_KEY, JSON.stringify({ registrationId: result.registrationId, emailSent, at: new Date().toISOString() }));
       localStorage.removeItem(STORAGE_KEY);
       setSubmittedEmailSent(emailSent);
-      setSubmittedId(result.registrationId as string);
       setShowConfirm(false);
+      const { requestBrandTransition } = await import('@/app/lib/brand-transition');
+      requestBrandTransition({ label: 'Registration complete' });
+      setSubmittedId(result.registrationId as string);
       window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
     } catch (error) {
       setShowConfirm(false);

@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { EXPORT_ASSET_COLUMNS, EXPORT_COLUMNS } from '@/app/lib/admin/types';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -18,20 +19,29 @@ export function ExportColumnsDialog({
   selectedColumns,
   onSelectedColumnsChange,
   includeAssets,
+  columnOptions,
   title = 'Export',
   description = 'Choose columns, then download Excel or CSV.',
   onExport,
+  children,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   selectedColumns: string[];
   onSelectedColumnsChange: (columns: string[]) => void;
   includeAssets?: boolean;
+  /** When set, replaces the default volunteer export columns. */
+  columnOptions?: ReadonlyArray<{ id: string; label: string }>;
   title?: string;
   description?: string;
   onExport: (format: 'csv' | 'xlsx') => void;
+  children?: ReactNode;
 }) {
-  const columns = includeAssets ? [...EXPORT_COLUMNS, ...EXPORT_ASSET_COLUMNS] : [...EXPORT_COLUMNS];
+  const columns = columnOptions
+    ? [...columnOptions]
+    : includeAssets
+      ? [...EXPORT_COLUMNS, ...EXPORT_ASSET_COLUMNS]
+      : [...EXPORT_COLUMNS];
   const allIds = columns.map((column) => column.id);
 
   return (
@@ -41,6 +51,7 @@ export function ExportColumnsDialog({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
+        {children}
         <div className="grid max-h-72 gap-2 overflow-y-auto">
           {columns.map((column) => (
             <label key={column.id} className="flex min-h-10 items-center gap-2 text-sm">

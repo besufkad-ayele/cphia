@@ -1,5 +1,9 @@
-import { HomeSkeleton } from '@/components/status/page-skeletons';
+import { CphiaLoader } from '@/components/brand/cphia-loader';
 
 export default function PublicLoading() {
-  return <HomeSkeleton />;
+  return (
+    <main className="grid min-h-dvh place-items-center bg-[#041816] p-4" aria-busy="true" aria-live="polite">
+      <CphiaLoader size="lg" label="Loading CPHIA volunteer home" />
+    </main>
+  );
 }

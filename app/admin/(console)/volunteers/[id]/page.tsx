@@ -34,6 +34,7 @@ import { ImageLightbox } from '@/components/admin/image-lightbox';
 import { ReviewCommentsCard } from '@/components/admin/review-comments-card';
 import { ReviewStatusActions } from '@/components/admin/review-status-actions';
 import { StatusBadge } from '@/components/admin/status-badge';
+import { VolunteerAttendanceHistory } from '@/components/admin/volunteer-attendance-history';
 import { VolunteerPreviewDialog } from '@/components/admin/volunteer-preview-dialog';
 import { href } from '@/lib/app-href';
 import { buttonVariants } from '@/components/ui/button';
@@ -51,6 +52,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { CphiaLoader } from '@/components/brand/cphia-loader';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
@@ -634,6 +636,8 @@ function VolunteerDetailPageInner() {
         </Card>
       ) : null}
 
+      <VolunteerAttendanceHistory volunteerId={detail.id} />
+
       {cohort ? (
         <Card>
           <CardHeader>
@@ -859,7 +863,7 @@ function VolunteerDetailPageInner() {
 
 export default function VolunteerDetailPage() {
   return (
-    <Suspense fallback={<Skeleton className="h-96 w-full" />}>
+    <Suspense fallback={<CphiaLoader fullscreen size="lg" label="Loading volunteer" />}>
       <VolunteerDetailPageInner />
     </Suspense>
   );

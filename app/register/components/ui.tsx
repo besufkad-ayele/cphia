@@ -1,7 +1,6 @@
 "use client";
 
 import { Fragment, type ReactNode } from 'react';
-import Link from 'next/link';
 import { ArrowLeft, ArrowRight, Camera, Check, ChevronDown, CircleAlert, FileText, ImageIcon, Languages, User } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Label } from '@/components/ui/label';
@@ -59,9 +58,10 @@ export function AppShell({
       <span aria-hidden className="register-gradient-orb" />
       <header className="fixed inset-x-0 top-0 z-40 border-b border-white/50 bg-white/65 pt-[env(safe-area-inset-top)] shadow-[0_8px_30px_rgba(0,0,0,0.06)] backdrop-blur-2xl backdrop-saturate-150 supports-[backdrop-filter]:bg-white/45">
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-3 py-3 md:px-6 lg:px-10">
-          <Link href="/" className="w-fit shrink-0 rounded-xl bg-white/80 px-2 py-1.5 ring-1 ring-black/5 backdrop-blur-sm">
-            <CphiaLogo className="h-9 w-auto max-w-[108px] object-contain object-left sm:h-11 sm:max-w-[200px]" />
-          </Link>
+          <CphiaLogo
+            href="/"
+            className="h-9 w-auto max-w-[108px] object-contain object-left sm:h-11 sm:max-w-[200px]"
+          />
           {progress ? <HeaderProgress step={progress.step} titles={progress.titles} /> : <div className="flex-1" />}
           <LanguageSwitcher locale={locale} onChange={onLocaleChange} />
         </div>

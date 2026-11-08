@@ -1,5 +1,5 @@
-import { AdminSkeleton } from '@/components/status/page-skeletons';
+import { CphiaLoader } from '@/components/brand/cphia-loader';
 
 export default function AdminLoading() {
-  return <AdminSkeleton />;
+  return <CphiaLoader fullscreen size="lg" label="Loading admin" />;
 }

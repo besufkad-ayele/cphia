@@ -21,6 +21,10 @@ import {
   Users,
 } from 'lucide-react';
 import { CphiaLogo } from '@/components/brand/cphia-logo';
+import {
+  consumePublicFirstTransition,
+  requestBrandTransition,
+} from '@/app/lib/brand-transition';
 
 const highlights = [
   { icon: Calendar, label: 'November 23–27, 2026' },
@@ -172,6 +176,9 @@ export default function PublicHomePage() {
   const last = index === SLIDE_COUNT - 1;
 
   const goToRegister = useCallback(() => {
+    if (consumePublicFirstTransition()) {
+      requestBrandTransition({ label: 'Opening registration' });
+    }
     router.push('/register');
   }, [router]);
 
@@ -214,11 +221,17 @@ export default function PublicHomePage() {
 
       <div className="relative z-10 mx-auto flex h-full max-w-6xl flex-col px-4 py-4 sm:px-6">
         <header className="flex shrink-0 items-center justify-between gap-3">
-          <Link href="/" className="rounded-xl bg-white px-3 py-2 shadow-sm">
-            <CphiaLogo className="h-10 w-auto max-w-[170px] object-contain object-left sm:h-12 sm:max-w-[240px]" />
-          </Link>
+          <CphiaLogo
+            href="/"
+            className="h-10 w-auto max-w-[170px] object-contain object-left sm:h-12 sm:max-w-[240px]"
+          />
           <Link
             href="/register"
+            onClick={() => {
+              if (consumePublicFirstTransition()) {
+                requestBrandTransition({ label: 'Opening registration' });
+              }
+            }}
             className="inline-flex h-11 shrink-0 items-center gap-2 rounded-lg bg-white/15 px-4 text-sm font-semibold text-white ring-1 ring-white/35 backdrop-blur-md hover:bg-white/25"
           >
             Register

@@ -34,6 +34,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { CphiaLoader } from '@/components/brand/cphia-loader';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -624,7 +625,7 @@ function VolunteersTable() {
 
 export default function VolunteersPage() {
   return (
-    <Suspense fallback={<Skeleton className="h-96 w-full" />}>
+    <Suspense fallback={<CphiaLoader fullscreen size="lg" label="Loading volunteers" />}>
       <VolunteersTable />
     </Suspense>
   );

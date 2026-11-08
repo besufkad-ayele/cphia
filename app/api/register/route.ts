@@ -183,7 +183,10 @@ export async function POST(request: NextRequest) {
       if (!file || typeof file === 'string') return { error: missingCode };
       const attachment = file as File;
       if (!attachment.size) return { error: missingCode };
-      const extension = extensionForMime(attachment.type);
+      const extension =
+        /\.pdf$/i.test(attachment.name) || /pdf/i.test(attachment.type || '')
+          ? 'pdf'
+          : extensionForMime(attachment.type);
       return uploadAttachment(attachment, `${registration.idempotencyKey}${suffix}.${extension}`, options);
     }
 
@@ -203,7 +206,10 @@ export async function POST(request: NextRequest) {
     const fanBackFile = formData.get('fanPhotoBack');
     if (fanBackFile && typeof fanBackFile !== 'string' && (fanBackFile as File).size) {
       const attachment = fanBackFile as File;
-      const extension = extensionForMime(attachment.type);
+      const extension =
+        /\.pdf$/i.test(attachment.name) || /pdf/i.test(attachment.type || '')
+          ? 'pdf'
+          : extensionForMime(attachment.type);
       const fanBackUploaded = await uploadAttachment(attachment, `${registration.idempotencyKey}-fan-back.${extension}`);
       if ('error' in fanBackUploaded) {
         const code = String(fanBackUploaded.error || 'REGISTRATION_FAILED');

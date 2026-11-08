@@ -1,6 +1,7 @@
 'use client';
 
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { ATTENDANCE_STATUSES, type AttendanceStatus } from '@/app/lib/admin/ops';
@@ -11,9 +12,10 @@ import {
   AttendanceIdentitySheet,
 } from '@/components/admin/attendance-identity-dialog';
 import { Banner, controlClass, PageHeader } from '@/components/admin/console';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
+import { CphiaLoader } from '@/components/brand/cphia-loader';
+import { href } from '@/lib/app-href';
 import { cn } from '@/lib/utils';
 
 type Shift = {
@@ -44,6 +46,7 @@ type Row = {
   id: string;
   status: AttendanceStatus;
   notes: string;
+  checked_in_at?: string | null;
   registration_id: string;
   registrations: Person | Person[] | null;
 };
@@ -94,6 +97,8 @@ function AttendanceDesk() {
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState<SheetTab>('waiting');
+  const [statusFilter, setStatusFilter] = useState<AttendanceStatus | 'all'>('all');
+  const [notesByPerson, setNotesByPerson] = useState<Record<string, string>>({});
   const [approved, setApproved] = useState<Person[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [identityId, setIdentityId] = useState<string | null>(null);
@@ -140,7 +145,11 @@ function AttendanceDesk() {
     ? sheet.counts.present + sheet.counts.late + sheet.counts.excused
     : rows.filter((row) => row.status !== 'absent').length;
 
-  const visibleRows = tab === 'waiting' ? waitingRows : checkedInRows;
+  const visibleRows = useMemo(() => {
+    const base = tab === 'waiting' ? waitingRows : checkedInRows;
+    if (statusFilter === 'all') return base;
+    return base.filter((row) => row.status === statusFilter);
+  }, [tab, waitingRows, checkedInRows, statusFilter]);
 
   const searchHits = useMemo(() => {
     const q = query.trim();
@@ -171,14 +180,23 @@ function AttendanceDesk() {
       return;
     }
     try {
-      await adminFetch('/api/admin/attendance', { method: 'POST', body: JSON.stringify({ shiftId, registrationId, status }) });
-      if (status !== 'absent') setTab('checked_in');
-      else setTab('waiting');
+      const notes = (notesByPerson[registrationId] || '').trim();
+      await adminFetch('/api/admin/attendance', {
+        method: 'POST',
+        body: JSON.stringify({ shiftId, registrationId, status, notes }),
+      });
       setQuery('');
       await loadShift(shiftId);
     } catch (reason) {
       toast.error(reason instanceof Error ? reason.message : 'Could not mark attendance.');
     }
+  }
+
+  function formatCheckIn(value?: string | null) {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
 
   async function sheetAction(action: 'submit' | 'verify' | 'reopen' | 'seed') {
@@ -206,11 +224,16 @@ function AttendanceDesk() {
 
   return (
     <div className="grid gap-6">
-      <PageHeader
-        kicker="FLOOR"
-        title="Attendance"
-        description="Waiting tab stays on absents. After you mark present / late / excused they move to Checked in. Search works on both."
-      />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <PageHeader
+          kicker="FLOOR"
+          title="Attendance"
+          description="Waiting tab stays on absents. After you mark present / late / excused they move to Checked in. Search works on both. Reports and export use verified sheets only."
+        />
+        <Link href={href('/admin/attendance/reports')} className={cn(buttonVariants({ variant: 'outline' }), 'h-11 shrink-0')}>
+          Reports & export
+        </Link>
+      </div>
       <Banner message={error} />
       <div className="grid gap-4 lg:grid-cols-[240px_minmax(0,1fr)_minmax(320px,380px)]">
         <Card>
@@ -272,18 +295,43 @@ function AttendanceDesk() {
               <div className="grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-black/35 p-1">
                 <button
                   type="button"
-                  onClick={() => setTab('waiting')}
+                  onClick={() => { setTab('waiting'); setStatusFilter('all'); }}
                   className={`rounded-xl px-3 py-2 text-sm font-medium transition ${tab === 'waiting' ? 'bg-[#e7c15a]/15 text-[#e7c15a]' : 'text-zinc-300 hover:bg-white/5'}`}
                 >
                   Waiting · {waitingCount}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setTab('checked_in')}
+                  onClick={() => { setTab('checked_in'); setStatusFilter('all'); }}
                   className={`rounded-xl px-3 py-2 text-sm font-medium transition ${tab === 'checked_in' ? 'bg-[#e7c15a]/15 text-[#e7c15a]' : 'text-zinc-300 hover:bg-white/5'}`}
                 >
                   Checked in · {checkedInCount}
                 </button>
+              </div>
+
+              <div className="flex flex-wrap gap-1">
+                {([
+                  ['all', 'All'],
+                  ...ATTENDANCE_STATUSES.map((status) => [status, status] as const),
+                ] as const).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => {
+                      setStatusFilter(value);
+                      if (value === 'absent') setTab('waiting');
+                      else if (value !== 'all') setTab('checked_in');
+                    }}
+                    className={cn(
+                      'rounded-full border px-3 py-1 text-xs capitalize transition',
+                      statusFilter === value
+                        ? 'border-[#e7c15a]/50 bg-[#e7c15a]/15 text-[#e7c15a]'
+                        : 'border-white/10 text-zinc-400 hover:bg-white/5',
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
 
               <input
@@ -317,9 +365,17 @@ function AttendanceDesk() {
                       <p className="text-xs text-zinc-400">
                         {person.registration_id} · {person.sector}
                         {row ? ` · ${row.status}` : ' · not on sheet yet'}
+                        {row?.checked_in_at ? ` · in ${formatCheckIn(row.checked_in_at)}` : ''}
                         <span className="ml-1 text-[#e7c15a]">· tap for ID</span>
                       </p>
                     </button>
+                    <input
+                      className={controlClass}
+                      value={notesByPerson[person.id] ?? row?.notes ?? ''}
+                      placeholder="Optional note for this mark"
+                      disabled={locked}
+                      onChange={(event) => setNotesByPerson((current) => ({ ...current, [person.id]: event.target.value }))}
+                    />
                     <div className="grid grid-cols-2 gap-1 sm:grid-cols-4">
                       {ATTENDANCE_STATUSES.map((status) => (
                         <Button
@@ -368,9 +424,20 @@ function AttendanceDesk() {
                       <p className="truncate text-sm font-medium text-white">{person ? formatVolunteerName(person) : 'Volunteer'}</p>
                       <p className="text-xs text-zinc-400">
                         {person?.registration_id} · {person?.sector} · {row.status}
+                        {row.checked_in_at ? ` · in ${formatCheckIn(row.checked_in_at)}` : ''}
+                        {row.notes ? ` · note: ${row.notes}` : ''}
                         {person ? <span className="ml-1 text-[#e7c15a]">· tap for ID</span> : null}
                       </p>
                     </button>
+                    {person ? (
+                      <input
+                        className={controlClass}
+                        value={notesByPerson[person.id] ?? row.notes ?? ''}
+                        placeholder="Optional note for this mark"
+                        disabled={locked}
+                        onChange={(event) => setNotesByPerson((current) => ({ ...current, [person.id]: event.target.value }))}
+                      />
+                    ) : null}
                     <div className="grid grid-cols-2 gap-1">
                       {ATTENDANCE_STATUSES.map((status) => (
                         <Button
@@ -420,7 +487,7 @@ function AttendanceDesk() {
 
 export default function AttendancePage() {
   return (
-    <Suspense fallback={<Skeleton className="h-96 w-full" />}>
+    <Suspense fallback={<CphiaLoader fullscreen size="lg" label="Loading attendance" />}>
       <AttendanceDesk />
     </Suspense>
   );
