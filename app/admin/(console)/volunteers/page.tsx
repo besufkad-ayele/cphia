@@ -3,7 +3,7 @@
 import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Download, Plus, Search } from 'lucide-react';
+import { Copy, Download, Plus, Search } from 'lucide-react';
 import { HEALTH_SUBSECTORS, SECTORS } from '@cphia/shared/constants';
 import { toast } from 'sonner';
 import type { AdminStatus } from '@/app/lib/admin/status';
@@ -47,6 +47,58 @@ import {
 
 const emptyMetrics: RegistrationMetrics = { total: 0, pending: 0, approved: 0, review: 0, flagged: 0 };
 const PAGE_SIZE = 25;
+
+async function copyField(label: string, value: string) {
+  const text = value.trim();
+  if (!text) {
+    toast.error(`No ${label.toLowerCase()} to copy.`);
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    toast.success(`${label} copied.`);
+  } catch {
+    toast.error('Could not copy to clipboard.');
+  }
+}
+
+function CopyFieldButton({
+  label,
+  value,
+  className,
+}: {
+  label: string;
+  value: string;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      title={`Copy ${label.toLowerCase()}`}
+      aria-label={`Copy ${label.toLowerCase()}`}
+      className={cn(
+        'inline-flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition hover:bg-white/10 hover:text-foreground',
+        className,
+      )}
+      onClick={(event) => {
+        event.stopPropagation();
+        event.preventDefault();
+        void copyField(label, value);
+      }}
+    >
+      <Copy className="size-3.5" />
+    </button>
+  );
+}
+
+function ListReviewNote({ status, note }: { status: AdminStatus; note: string }) {
+  if ((status !== 'flagged' && status !== 'review') || !note.trim()) return null;
+  return (
+    <p className="mt-1 max-w-[16rem] text-xs leading-snug text-amber-200/90" title={note}>
+      {note}
+    </p>
+  );
+}
 
 type IndexCache = {
   key: string;
@@ -393,13 +445,25 @@ function VolunteersTable() {
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="truncate font-medium text-white">{row.name}</p>
-                        <p className="mt-0.5 font-mono text-[11px] text-zinc-400">{row.registrationId}</p>
+                        <div className="flex items-center gap-1">
+                          <p className="truncate font-medium text-white">{row.name}</p>
+                          <CopyFieldButton label="Name" value={row.name} className="text-zinc-400 hover:text-white" />
+                        </div>
+                        <div className="mt-0.5 flex items-center gap-1">
+                          <p className="truncate font-mono text-[11px] text-zinc-400">{row.registrationId}</p>
+                          <CopyFieldButton label="ID" value={row.registrationId} className="text-zinc-400 hover:text-white" />
+                        </div>
                       </div>
-                      <StatusBadge status={row.status} />
+                      <div className="shrink-0 text-right">
+                        <StatusBadge status={row.status} />
+                        <ListReviewNote status={row.status} note={row.reviewNote} />
+                      </div>
                     </div>
                     <div className="grid gap-1 text-xs text-zinc-400">
-                      <p className="truncate">{row.phone || '—'}{row.email ? ` · ${row.email}` : ''}</p>
+                      <div className="flex min-w-0 items-center gap-1">
+                        <p className="truncate">{row.phone || '—'}{row.email ? ` · ${row.email}` : ''}</p>
+                        <CopyFieldButton label="Phone" value={row.phone} className="text-zinc-400 hover:text-white" />
+                      </div>
                       <p className="truncate">
                         {row.sector}
                         {(row.healthSubsectors?.length ?? 0) > 0 ? ` · ${row.healthSubsectors?.join(', ')}` : ''}
@@ -477,26 +541,29 @@ function VolunteersTable() {
                         onClick={() => openVolunteer(row.id)}
                       >
                         <TableCell>
-                          {openFullRecord ? (
-                            <Link
-                              href={href(volunteerHref(row.id))}
-                              className="font-medium hover:underline"
-                              onClick={(event) => event.stopPropagation()}
-                            >
-                              {row.name}
-                            </Link>
-                          ) : (
-                            <button
-                              type="button"
-                              className="text-left font-medium hover:underline"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                openVolunteer(row.id);
-                              }}
-                            >
-                              {row.name}
-                            </button>
-                          )}
+                          <div className="flex items-center gap-1">
+                            {openFullRecord ? (
+                              <Link
+                                href={href(volunteerHref(row.id))}
+                                className="font-medium hover:underline"
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                {row.name}
+                              </Link>
+                            ) : (
+                              <button
+                                type="button"
+                                className="text-left font-medium hover:underline"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openVolunteer(row.id);
+                                }}
+                              >
+                                {row.name}
+                              </button>
+                            )}
+                            <CopyFieldButton label="Name" value={row.name} />
+                          </div>
                           <p className="text-xs text-muted-foreground">
                             {[row.firstName && `Name: ${row.firstName}`, row.middleName && `Father: ${row.middleName}`, row.lastName && `Grandfather: ${row.lastName}`]
                               .filter(Boolean)
@@ -504,9 +571,17 @@ function VolunteersTable() {
                           </p>
                           <p className="text-xs text-muted-foreground">{row.cohort}</p>
                         </TableCell>
-                        <TableCell className="font-mono text-xs">{row.registrationId}</TableCell>
                         <TableCell>
-                          <p>{row.phone}</p>
+                          <div className="flex items-center gap-1">
+                            <span className="font-mono text-xs">{row.registrationId}</span>
+                            <CopyFieldButton label="ID" value={row.registrationId} />
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            <p>{row.phone || '—'}</p>
+                            <CopyFieldButton label="Phone" value={row.phone} />
+                          </div>
                           <p className="text-xs text-muted-foreground">{row.email}</p>
                         </TableCell>
                         <TableCell className="font-mono text-xs">{row.fanNumber || '—'}</TableCell>
@@ -516,7 +591,10 @@ function VolunteersTable() {
                             <p className="text-xs text-muted-foreground">{row.healthSubsectors?.join(', ')}</p>
                           ) : null}
                         </TableCell>
-                        <TableCell><StatusBadge status={row.status} /></TableCell>
+                        <TableCell>
+                          <StatusBadge status={row.status} />
+                          <ListReviewNote status={row.status} note={row.reviewNote} />
+                        </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1" onClick={(event) => event.stopPropagation()}>
                             {openFullRecord ? (
