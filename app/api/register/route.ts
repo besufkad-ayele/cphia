@@ -177,17 +177,17 @@ export async function POST(request: NextRequest) {
       field: string,
       suffix: string,
       missingCode: string,
-      options?: { imagesOnly?: boolean },
     ) {
       const file = formData.get(field);
       if (!file || typeof file === 'string') return { error: missingCode };
       const attachment = file as File;
       if (!attachment.size) return { error: missingCode };
-      const extension =
-        /\.pdf$/i.test(attachment.name) || /pdf/i.test(attachment.type || '')
-          ? 'pdf'
-          : extensionForMime(attachment.type);
-      return uploadAttachment(attachment, `${registration.idempotencyKey}${suffix}.${extension}`, options);
+      const extension = extensionForMime(attachment.type);
+      return uploadAttachment(
+        attachment,
+        `${registration.idempotencyKey}${suffix}.${extension}`,
+        { imagesOnly: true },
+      );
     }
 
     const uploaded = await requireUpload('photo', '', 'PHOTO_REQUIRED');
@@ -206,11 +206,12 @@ export async function POST(request: NextRequest) {
     const fanBackFile = formData.get('fanPhotoBack');
     if (fanBackFile && typeof fanBackFile !== 'string' && (fanBackFile as File).size) {
       const attachment = fanBackFile as File;
-      const extension =
-        /\.pdf$/i.test(attachment.name) || /pdf/i.test(attachment.type || '')
-          ? 'pdf'
-          : extensionForMime(attachment.type);
-      const fanBackUploaded = await uploadAttachment(attachment, `${registration.idempotencyKey}-fan-back.${extension}`);
+      const extension = extensionForMime(attachment.type);
+      const fanBackUploaded = await uploadAttachment(
+        attachment,
+        `${registration.idempotencyKey}-fan-back.${extension}`,
+        { imagesOnly: true },
+      );
       if ('error' in fanBackUploaded) {
         const code = String(fanBackUploaded.error || 'REGISTRATION_FAILED');
         return jsonError(code, code === 'UPLOAD_FAILED' ? 502 : 400);

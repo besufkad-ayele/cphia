@@ -166,8 +166,12 @@ export function uploadRejectMessage(
 ) {
   if (error === 'HEIC_UNSUPPORTED') return HEIC_UPLOAD_MESSAGE;
   if (error === 'PHOTO_TOO_LARGE') return `File is too large. Maximum allowed is ${MAX_UPLOAD_LABEL}.`;
-  if (error === 'PROCESS_FAILED') return 'File could not be processed. Please try another photo or PDF.';
+  if (error === 'PROCESS_FAILED') {
+    return options?.imagesOnly
+      ? 'File could not be processed. Please try another photo.'
+      : 'File could not be processed. Please try another photo or PDF.';
+  }
   return options?.imagesOnly
-    ? 'File must be a JPG, PNG, or WEBP image.'
+    ? 'File must be a JPG, PNG, WEBP, or HEIC image.'
     : 'File must be a supported image or PDF.';
 }

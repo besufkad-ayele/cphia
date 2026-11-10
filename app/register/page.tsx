@@ -178,13 +178,12 @@ function RegisterScreen() {
     setter: (photo: StoredPhoto) => Promise<void>,
     setError: (message: string | null) => void,
     label: string,
-    options?: { imagesOnly?: boolean },
   ) => {
     setError(null);
     if (!file) return;
     try {
       const { prepareUploadFile } = await import('@/app/lib/prepare-upload');
-      const prepared = await prepareUploadFile(file, { imagesOnly: options?.imagesOnly, compress: true });
+      const prepared = await prepareUploadFile(file, { imagesOnly: true, compress: true });
       if ('error' in prepared) {
         setError(`${label}: ${prepared.message}`);
         return;
@@ -196,7 +195,7 @@ function RegisterScreen() {
         type: prepared.mime,
       });
     } catch {
-      setError(`${label} could not be processed. Please try another file.`);
+      setError(`${label} could not be processed. Please try another photo.`);
     }
   };
 

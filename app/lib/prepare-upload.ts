@@ -143,7 +143,7 @@ export async function prepareUploadFile(
       return {
         error: 'INVALID_PHOTO',
         message: options?.imagesOnly
-          ? 'File must be a JPG, PNG, or WEBP image.'
+          ? 'File must be a JPG, PNG, WEBP, or HEIC image.'
           : 'File must be a supported image or PDF.',
       };
     }
@@ -203,7 +203,9 @@ export async function prepareUploadFile(
   } catch {
     return {
       error: 'PROCESS_FAILED',
-      message: 'File could not be processed. Please try another photo or PDF.',
+      message: options?.imagesOnly
+        ? 'File could not be processed. Please try another photo.'
+        : 'File could not be processed. Please try another photo or PDF.',
     };
   }
 }

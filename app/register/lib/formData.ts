@@ -99,9 +99,7 @@ export function buildRegistrationFormData(
     formData.append('deviceFingerprintHash', extras.deviceFingerprintHash);
   }
   function appendStored(key: string, stored: StoredPhoto) {
-    const mime =
-      stored.type
-      || (/\.pdf$/i.test(stored.fileName) ? 'application/pdf' : 'image/jpeg');
+    const mime = stored.type || 'image/jpeg';
     const file =
       stored.blob instanceof File && stored.blob.type
         ? stored.blob

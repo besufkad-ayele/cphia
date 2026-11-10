@@ -14,7 +14,7 @@ export const REGISTER_ERROR_MESSAGES: Record<string, string> = {
   UREPORT_SCREENSHOT_REQUIRED: 'Upload your U-Report registration screenshot.',
   BANK_OWNER_ID_REQUIRED: 'Upload a photo of the account owner’s ID.',
   PHOTO_TOO_LARGE: `A file is too large. Maximum allowed is ${MAX_UPLOAD_LABEL}.`,
-  INVALID_PHOTO: 'One of the files is not a supported image or PDF. Use JPG, PNG, WEBP, HEIC, or PDF.',
+  INVALID_PHOTO: 'One of the files is not a supported image. Use JPG, PNG, WEBP, or HEIC.',
   UPLOAD_FAILED: 'Could not save one of your files. Check your connection and try again.',
   INVALID_INPUT: 'Some form fields are invalid. Please review and correct them.',
   BODY_TOO_LARGE: `The upload is too large. Keep each file under ${MAX_UPLOAD_LABEL} and try again.`,

@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { DOCUMENT_ACCEPT, MAX_UPLOAD_LABEL } from '@/app/lib/uploads';
+import { IMAGE_ACCEPT, MAX_UPLOAD_LABEL } from '@/app/lib/uploads';
 import { ImageField } from '../components/image-field';
 import { Field, RadioCard, SectorPicker, ToggleChip } from '../components/ui';
 import { healthSubsectorOptions, sectorOptions } from '../constants';
@@ -188,28 +188,24 @@ export function SectorStep({
       </Field>
 
       {values.ureportRegistered ? (
-        <Field id="ureportScreenshot" label={t('form.ureportScreenshot')} hint={`JPG, PNG, WEBP, HEIC, or PDF · max ${MAX_UPLOAD_LABEL}`} error={ureportError ?? undefined}>
+        <Field id="ureportScreenshot" label={t('form.ureportScreenshot')} hint={`JPG, PNG, WEBP, or HEIC · max ${MAX_UPLOAD_LABEL}`} error={ureportError ?? undefined}>
           {ureportUrl || ureportPhoto ? (
             <div className="grid gap-2">
-              {ureportPhoto?.type === 'application/pdf' || ureportPhoto?.fileName.toLowerCase().endsWith('.pdf') ? (
-                <div className="flex h-32 items-center justify-center rounded-lg border bg-muted text-sm font-medium text-muted-foreground">
-                  PDF selected: {ureportPhoto?.fileName ?? 'document.pdf'}
-                </div>
-              ) : ureportUrl ? (
+              {ureportUrl ? (
                 <img src={ureportUrl} alt="U-Report screenshot" className="h-32 w-full rounded-lg object-cover" />
               ) : null}
               <Button type="button" variant="outline" className="h-11 w-fit" onClick={onRemoveUreport}>Remove file</Button>
             </div>
           ) : (
             <Button type="button" variant="outline" className="h-11" onClick={() => ureportRef.current?.click()}>
-              Upload U-Report file
+              Upload U-Report photo
             </Button>
           )}
           <input
             ref={ureportRef}
             className="hidden"
             type="file"
-            accept={DOCUMENT_ACCEPT}
+            accept={IMAGE_ACCEPT}
             onChange={(event) => onUploadUreport(event.target.files?.[0] ?? null)}
           />
         </Field>
