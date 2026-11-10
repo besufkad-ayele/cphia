@@ -3,7 +3,8 @@ export const SECTORS = [
   'Tourism',
   'Culture and Sport',
   'MoFA',
-  'UNICEF',
+  'UNICEF', 
+  'u-report',
   'Transport',
   'Other',
 ] as const;

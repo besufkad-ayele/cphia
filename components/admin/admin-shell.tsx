@@ -23,22 +23,24 @@ import {
 import {
   ADMIN_FEATURES,
   MOBILE_DOCK_PRIORITY,
+  featureForAdminPath,
+  firstAllowedAdminHref,
   hasFeature,
-  type FeatureKey,
   type PermissionKey,
 } from '@/app/lib/admin/permissions';
 import { AttendanceFlag } from '@/components/admin/attendance-flag';
 import { ConnectionStatusProvider, useConnectionStatus } from '@/components/admin/connection-status';
 import { AdminMobileDock } from '@/components/admin/mobile-dock';
+import { CphiaLoader } from '@/components/brand/cphia-loader';
 import { CphiaLogo, CphiaMark } from '@/components/brand/cphia-logo';
 import { Button } from '@/components/ui/button';
 import { requestBrandTransition } from '@/app/lib/brand-transition';
 import { href } from '@/lib/app-href';
 import { cn } from '@/lib/utils';
 
-function triggerDashboardGate(pathname: string) {
-  if (pathname === '/admin') return;
-  requestBrandTransition({ label: 'Loading dashboard' });
+function triggerDashboardGate(pathname: string, homePath: string) {
+  if (pathname === homePath) return;
+  requestBrandTransition({ label: 'Loading desk' });
 }
 
 const ICONS = {
@@ -81,6 +83,22 @@ function AdminShellInner({
     setMenuOpen(false);
   }, [pathname]);
 
+  const session = permissions ? { role, permissions } : null;
+  const homePath = session ? firstAllowedAdminHref(session) || '/admin' : '/admin';
+  const requiredFeature = featureForAdminPath(pathname);
+  const accessDenied = Boolean(
+    session && requiredFeature && !hasFeature(session, requiredFeature),
+  );
+  // Hold module pages until /api/admin/me resolves so denied routes never flash "not included".
+  const awaitingAccess = permissions === null && Boolean(requiredFeature);
+
+  useEffect(() => {
+    if (!accessDenied || !permissions) return;
+    const next = firstAllowedAdminHref({ role, permissions });
+    if (!next || next === pathname) return;
+    router.replace(href(next));
+  }, [accessDenied, permissions, role, pathname, router]);
+
   function toggleExpanded() {
     setExpanded((current) => {
       const next = !current;
@@ -107,7 +125,6 @@ function AdminShellInner({
           : items.map((item) => {
               const active = item.href === '/admin' ? pathname === '/admin' : pathname.startsWith(item.href);
               const Icon = ICONS[item.key];
-              const isDashboard = item.href === '/admin';
               return (
                 <Link
                   key={item.href}
@@ -115,7 +132,7 @@ function AdminShellInner({
                   title={item.label}
                   aria-current={active ? 'page' : undefined}
                   onClick={() => {
-                    if (isDashboard) triggerDashboardGate(pathname);
+                    if (item.key === 'dashboard') triggerDashboardGate(pathname, homePath);
                   }}
                   className={cn(
                     'flex rounded-2xl text-sm transition',
@@ -153,18 +170,18 @@ function AdminShellInner({
           {expanded ? (
             <div className="min-w-0 flex-1 rounded-xl px-1 py-1 transition hover:bg-white/5">
               <CphiaLogo
-                href={href('/admin')}
+                href={href(homePath)}
                 priority
-                onClick={() => triggerDashboardGate(pathname)}
+                onClick={() => triggerDashboardGate(pathname, homePath)}
                 className="h-11 w-auto max-w-full object-contain object-left"
-                alt="CPHIA dashboard"
+                alt="CPHIA desk"
               />
             </div>
           ) : (
             <CphiaMark
-              href={href('/admin')}
+              href={href(homePath)}
               priority
-              onClick={() => triggerDashboardGate(pathname)}
+              onClick={() => triggerDashboardGate(pathname, homePath)}
               className="size-11 rounded-2xl border border-[#e7c15a]/35 bg-black/30 p-1.5 transition hover:border-[#e7c15a]/60 hover:bg-[#e7c15a]/10"
             />
           )}
@@ -226,7 +243,11 @@ function AdminShellInner({
             </div>
           </div>
         </header>
-        <main className="flex-1 p-4 pb-28 md:p-6 md:pb-6">{children}</main>
+        <main className="flex-1 p-4 pb-28 md:p-6 md:pb-6">
+          {awaitingAccess || accessDenied ? (
+            <CphiaLoader size="lg" label="Opening your desk" />
+          ) : children}
+        </main>
 
         <AttendanceFlag
           hidden={!permissions || !hasFeature({ role, permissions }, 'attendance')}
@@ -245,7 +266,7 @@ function AdminShellInner({
             icon: ICONS[item.key],
           }))}
           onItemNavigate={(item) => {
-            if (item.href === '/admin') triggerDashboardGate(pathname);
+            if (item.key === 'dashboard') triggerDashboardGate(pathname, homePath);
           }}
           onMore={items.filter((item) => item.key !== 'attendance').length > 4 ? () => setMenuOpen(true) : undefined}
         />
@@ -258,14 +279,14 @@ function AdminShellInner({
             <div className="mb-4 flex items-center justify-between gap-3">
               <div className="min-w-0 flex-1">
                 <CphiaLogo
-                  href={href('/admin')}
+                  href={href(homePath)}
                   priority
                   onClick={() => {
-                    triggerDashboardGate(pathname);
+                    triggerDashboardGate(pathname, homePath);
                     setMenuOpen(false);
                   }}
                   className="h-10 w-auto max-w-full object-contain object-left"
-                  alt="CPHIA dashboard"
+                  alt="CPHIA desk"
                 />
                 <p className="mt-2 truncate text-sm text-white">{name}</p>
               </div>

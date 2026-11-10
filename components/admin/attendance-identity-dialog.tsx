@@ -5,6 +5,7 @@ import { formatVolunteerName } from '@/app/lib/admin/types';
 import type { VolunteerBadge } from '@/app/register/lib/badge';
 import { isPdfUrl } from '@/app/lib/uploads';
 import { ImageLightbox } from '@/components/admin/image-lightbox';
+import { PinBelowHeader } from '@/components/admin/pin-below-header';
 import { VolunteerIdCard } from '@/components/register/volunteer-id-card';
 import { Button } from '@/components/ui/button';
 import {
@@ -199,7 +200,7 @@ function IdentityBody({
   );
 }
 
-/** Large screens: sticky ID panel beside the sheet list (no modal hop). */
+/** Large screens: pinned ID panel beside the sheet list (no modal hop). */
 export function AttendanceIdentityPanel({
   volunteerId,
   className,
@@ -221,7 +222,12 @@ export function AttendanceIdentityPanel({
           className,
         )}
       >
-        <div className="sticky top-4 grid gap-3 rounded-2xl border border-white/10 bg-black/30 p-4">
+        <PinBelowHeader
+          pinId="attendance-identity"
+          stackBelowPinId="attendance-toolbar"
+          gap={12}
+          className="grid max-h-[calc(100dvh-5.5rem)] gap-3 overflow-y-auto rounded-2xl border border-white/10 bg-[rgba(8,8,10,0.96)] p-4 shadow-[0_12px_28px_rgba(0,0,0,0.35)] backdrop-blur-xl"
+        >
           <div className="flex items-start justify-between gap-2">
             <div>
               <p className="text-[11px] uppercase tracking-wide text-[#e7c15a]">Identity</p>
@@ -250,7 +256,7 @@ export function AttendanceIdentityPanel({
               onPreviewPhoto={(src, alt) => setLightbox({ src, alt })}
             />
           )}
-        </div>
+        </PinBelowHeader>
       </aside>
       <ImageLightbox
         open={Boolean(lightbox)}

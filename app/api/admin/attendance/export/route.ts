@@ -7,9 +7,9 @@ import {
   type AttendanceExportColumnId,
 } from '@/app/lib/admin/attendance-columns';
 import { cellForAttendanceExport, loadAttendanceRows } from '@/app/lib/admin/attendance-query';
+import { attendanceFiltersFromSearchParams } from '@/app/lib/admin/attendance-report-params';
 import { logActivity } from '@/app/lib/admin/activity';
 import { dbError, requireCapability } from '@/app/lib/admin/guard';
-import { isAttendanceStatus, sanitizeSearch } from '@/app/lib/admin/ops';
 import { supervisedTeamIds } from '@/app/lib/admin/team-scope';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
 
@@ -23,7 +23,7 @@ function csvCell(value: string) {
 }
 
 export async function GET(request: NextRequest) {
-  const gate = await requireCapability(request, 'attendance.verify');
+  const gate = await requireCapability(request, 'attendance.reports');
   if (!gate.ok) return gate.error;
 
   const params = request.nextUrl.searchParams;
@@ -33,25 +33,14 @@ export async function GET(request: NextRequest) {
     .filter((item): item is AttendanceExportColumnId => allowed.has(item));
   const selected = columns.length ? columns : DEFAULT_ATTENDANCE_EXPORT_COLUMNS;
   const format = params.get('format') === 'xlsx' ? 'xlsx' : 'csv';
-  const statusRaw = params.get('status') || '';
-  const status = isAttendanceStatus(statusRaw) ? statusRaw : '';
   // Block/shift exports include pending (open/submitted) marks by default.
-  const verifiedOnly = params.get('verifiedOnly') === '1';
+  const filters = attendanceFiltersFromSearchParams(params, { verifiedOnly: false });
 
   try {
     const supabase = getSupabaseAdmin();
     const scopedTeamIds = await supervisedTeamIds(supabase, gate.session);
     const rows = await loadAttendanceRows(supabase, {
-      fromDate: params.get('from') || undefined,
-      toDate: params.get('to') || undefined,
-      cohortId: params.get('cohortId') || undefined,
-      teamId: params.get('teamId') || undefined,
-      status: status || undefined,
-      kind: params.get('kind') || undefined,
-      search: sanitizeSearch(params.get('q') || '') || undefined,
-      blockId: params.get('blockId') || undefined,
-      shiftId: params.get('shiftId') || undefined,
-      verifiedOnly,
+      ...filters,
       scopedTeamIds,
     });
 
@@ -72,10 +61,12 @@ export async function GET(request: NextRequest) {
         count: mapped.length,
         format,
         columns: selected,
-        status: status || 'all',
+        status: filters.status || 'all',
+        sector: filters.sector || null,
+        period: filters.periods?.join(',') || null,
         blockId: params.get('blockId') || null,
         shiftId: params.get('shiftId') || null,
-        verifiedOnly,
+        verifiedOnly: filters.verifiedOnly !== false,
       },
       request,
     });

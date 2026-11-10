@@ -492,6 +492,12 @@ html.admin-dark,
   --sidebar-ring: #e7c15a;
 }
 
+html.admin-dark,
+html.admin-dark body {
+  /* Keep horizontal bleed clipped without creating a scroll container that kills position:sticky */
+  overflow-x: clip;
+}
+
 html.admin-dark body,
 .admin-dark {
   background:

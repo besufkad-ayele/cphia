@@ -41,13 +41,16 @@ export default function AdminLoginPage() {
       window.localStorage.removeItem(STORAGE_KEY);
     }
     const response = await fetch('/api/admin/login', { method: 'POST', body: formData });
+    const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      const payload = await response.json().catch(() => ({}));
       setError(payload?.error === 'MISCONFIGURED' ? 'Admin login is not configured.' : 'Invalid email or password.');
       setLoading(false);
       return;
     }
-    window.location.assign('/admin');
+    const redirectTo = typeof payload?.redirectTo === 'string' && payload.redirectTo.startsWith('/admin')
+      ? payload.redirectTo
+      : '/admin';
+    window.location.assign(redirectTo);
   }
 
   return (
@@ -57,7 +60,7 @@ export default function AdminLoginPage() {
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px)] bg-[size:72px_72px] [mask-image:radial-gradient(circle_at_center,black,transparent_75%)]" />
 
       <section className="relative w-full max-w-[440px] rounded-[28px] border border-white/15 bg-white/6 p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_30px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:p-8">
-        <CphiaLogo href="/admin" className="h-12 w-auto max-w-[210px] object-contain object-left" alt="CPHIA dashboard" />
+        <CphiaLogo href="/admin/login" className="h-12 w-auto max-w-[210px] object-contain object-left" alt="CPHIA desk" />
         <p className="mt-6 text-[11px] font-semibold tracking-[0.22em] text-[#e7c15a]">VOLUNTEER DESK</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">Sign in</h1>
         <p className="mt-2 text-sm leading-6 text-zinc-400">Open the CPHIA-26 cohort: attendance, shifts, forms, and the people running them.</p>

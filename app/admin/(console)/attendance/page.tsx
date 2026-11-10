@@ -3,17 +3,29 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import { Settings2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ATTENDANCE_STATUSES, type AttendanceStatus } from '@/app/lib/admin/ops';
 import { adminFetch } from '@/app/lib/admin/messages';
+import { hasCapability } from '@/app/lib/admin/permissions';
 import { formatVolunteerName } from '@/app/lib/admin/types';
 import {
   AttendanceIdentityPanel,
   AttendanceIdentitySheet,
 } from '@/components/admin/attendance-identity-dialog';
 import { Banner, controlClass, PageHeader } from '@/components/admin/console';
+import { PinBelowHeader } from '@/components/admin/pin-below-header';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { CphiaLoader } from '@/components/brand/cphia-loader';
 import { href } from '@/lib/app-href';
 import { cn } from '@/lib/utils';
@@ -59,6 +71,7 @@ type Sheet = {
 };
 
 type SheetTab = 'waiting' | 'checked_in';
+type SearchHit = { person: Person; row: Row | null };
 
 function one<T>(value: T | T[] | null) {
   if (Array.isArray(value)) return value[0] ?? null;
@@ -89,6 +102,74 @@ function rowMatches(row: Row, query: string) {
   return personMatches(person, query);
 }
 
+function shiftLabel(shift: Shift) {
+  const cohort = one(shift.ops_cohorts);
+  const team = one(shift.ops_teams ?? null);
+  const time = `${String(shift.start_time).slice(0, 5)}–${String(shift.end_time).slice(0, 5)}`;
+  const bits = [
+    shift.name,
+    shift.shift_date,
+    time,
+    shift.kind || 'training',
+    team?.name,
+    cohort?.code,
+  ].filter(Boolean);
+  return bits.join(' · ');
+}
+
+function statusRank(status?: AttendanceStatus | null) {
+  if (status === 'present') return 0;
+  if (status === 'late') return 1;
+  if (status === 'excused') return 2;
+  if (status === 'absent') return 3;
+  return 4;
+}
+
+function PresentBadge({ checkedInAt }: { checkedInAt?: string | null }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-300">
+      Present
+      {checkedInAt ? <span className="font-normal normal-case tracking-normal text-emerald-200/80">· {checkedInAt}</span> : null}
+    </span>
+  );
+}
+
+function MarkButtons({
+  currentStatus,
+  locked,
+  canMark = true,
+  onMark,
+  compact,
+}: {
+  currentStatus?: AttendanceStatus | null;
+  locked: boolean;
+  canMark?: boolean;
+  onMark: (status: AttendanceStatus) => void;
+  compact?: boolean;
+}) {
+  if (!canMark) return null;
+  const alreadyPresent = currentStatus === 'present';
+  return (
+    <div className={cn('grid gap-1', compact ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2')}>
+      {ATTENDANCE_STATUSES.map((status) => {
+        const disabled = locked || (alreadyPresent && status !== 'absent');
+        return (
+          <Button
+            key={status}
+            size="sm"
+            className="w-full capitalize"
+            variant={currentStatus === status ? 'default' : status === 'present' ? 'default' : compact ? 'outline' : 'ghost'}
+            onClick={() => onMark(status)}
+            disabled={disabled}
+          >
+            {status}
+          </Button>
+        );
+      })}
+    </div>
+  );
+}
+
 function AttendanceDesk() {
   const searchParams = useSearchParams();
   const [shifts, setShifts] = useState<Shift[]>([]);
@@ -102,6 +183,7 @@ function AttendanceDesk() {
   const [approved, setApproved] = useState<Person[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [identityId, setIdentityId] = useState<string | null>(null);
+  const [session, setSession] = useState<{ role: string; permissions: string[] } | null>(null);
   const approvedLoaded = useRef(false);
 
   async function loadShift(nextShiftId: string) {
@@ -129,6 +211,19 @@ function AttendanceDesk() {
     loadApprovedIndex().catch((reason: Error) => setError(reason.message));
   }, []);
 
+  useEffect(() => {
+    fetch('/api/admin/me')
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload) => {
+        if (!payload) return;
+        setSession({
+          role: payload.role || 'admin',
+          permissions: Array.isArray(payload.permissions) ? payload.permissions : [],
+        });
+      })
+      .catch(() => null);
+  }, []);
+
   const waitingRows = useMemo(
     () => rows.filter((row) => row.status === 'absent').filter((row) => rowMatches(row, query)),
     [rows, query],
@@ -153,7 +248,7 @@ function AttendanceDesk() {
 
   const searchHits = useMemo(() => {
     const q = query.trim();
-    if (!q) return [] as Array<{ person: Person; row: Row | null }>;
+    if (!q) return [] as SearchHit[];
 
     const onSheetById = new Map(rows.map((row) => [row.registration_id, row]));
     const fromSheet = rows
@@ -168,11 +263,28 @@ function AttendanceDesk() {
       .filter((person) => !sheetIds.has(person.id))
       .map((person) => ({ person, row: onSheetById.get(person.id) ?? null }));
 
-    return [...fromSheet, ...fromApproved].slice(0, 16);
+    return [...fromSheet, ...fromApproved]
+      .sort((a, b) => statusRank(a.row?.status) - statusRank(b.row?.status))
+      .slice(0, 16);
   }, [approved, query, rows, sheet?.kind]);
 
   const locked = sheet?.sheetStatus === 'verified';
   const selected = shifts.find((shift) => shift.id === shiftId);
+  const canMark = session ? hasCapability(session, 'attendance.mark') : true;
+  const canSeed = session ? hasCapability(session, 'attendance.mark') : false;
+  const canSubmit = session ? hasCapability(session, 'attendance.submit') : false;
+  const canVerify = session ? hasCapability(session, 'attendance.verify') : false;
+  const canReopen = session ? hasCapability(session, 'attendance.reopen') : false;
+  const canReports = session ? hasCapability(session, 'attendance.reports') : false;
+  const hasSheetActions = canSeed || canSubmit || canVerify || canReopen;
+
+  function selectShift(nextId: string) {
+    setShiftId(nextId);
+    setTab('waiting');
+    setQuery('');
+    setIdentityId(null);
+    setStatusFilter('all');
+  }
 
   async function mark(registrationId: string, status: AttendanceStatus) {
     if (locked) {
@@ -230,168 +342,223 @@ function AttendanceDesk() {
           title="Attendance"
           description="Waiting tab stays on absents. After you mark present / late / excused they move to Checked in. Search works on both. Reports and export use verified sheets only."
         />
-        <Link href={href('/admin/attendance/reports')} className={cn(buttonVariants({ variant: 'outline' }), 'h-11 shrink-0')}>
-          Reports & export
-        </Link>
+        {canReports ? (
+          <Link href={href('/admin/attendance/reports')} className={cn(buttonVariants({ variant: 'outline' }), 'h-11 shrink-0')}>
+            Reports & export
+          </Link>
+        ) : null}
       </div>
       <Banner message={error} />
-      <div className="grid gap-4 lg:grid-cols-[240px_minmax(0,1fr)_minmax(320px,380px)]">
-        <Card>
-          <CardHeader><CardTitle>Shifts</CardTitle></CardHeader>
-          <CardContent className="grid gap-2">
-            {shifts.map((shift) => {
-              const cohort = one(shift.ops_cohorts);
-              const team = one(shift.ops_teams ?? null);
-              return (
-                <button
-                  key={shift.id}
-                  type="button"
-                  onClick={() => { setShiftId(shift.id); setTab('waiting'); setQuery(''); setIdentityId(null); }}
-                  className={`rounded-2xl border px-3 py-3 text-left text-sm ${shift.id === shiftId ? 'border-[#e7c15a]/50 bg-[#e7c15a]/10' : 'border-white/10 bg-black/25'}`}
-                >
-                  <p className="font-medium text-white">{shift.name}</p>
-                  <p className="text-xs text-zinc-400">{shift.shift_date} · {String(shift.start_time).slice(0, 5)}–{String(shift.end_time).slice(0, 5)}</p>
-                  <p className="text-xs text-zinc-500">
-                    {shift.kind || 'training'}{team ? ` · ${team.name}` : ''} · {cohort?.code || 'Cohort'} · {shift.sheet_status || 'open'}
-                  </p>
-                </button>
-              );
-            })}
-            {shifts.length === 0 ? <p className="text-sm text-zinc-400">No shifts yet. Create one under Shifts.</p> : null}
-          </CardContent>
-        </Card>
-        <Card className="overflow-visible">
-          <CardHeader>
-            <CardTitle>{selected ? selected.name : 'Select a shift'}</CardTitle>
+
+      <div className="grid gap-2 rounded-2xl border border-[#e7c15a]/35 bg-[#e7c15a]/10 p-3">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <label className="text-[11px] uppercase tracking-wide text-[#e7c15a]">Selected shift</label>
+            <select
+              className={cn(controlClass, 'mt-1 h-11 border-white/15 bg-black/40')}
+              value={shiftId}
+              onChange={(event) => selectShift(event.target.value)}
+              disabled={shifts.length === 0}
+            >
+              {shifts.length === 0 ? <option value="">No shifts yet</option> : null}
+              {shifts.map((shift) => (
+                <option key={shift.id} value={shift.id}>
+                  {shiftLabel(shift)}
+                </option>
+              ))}
+            </select>
             {selected ? (
-              <p className="text-sm text-zinc-400">
-                {sheet?.kind || selected.kind || 'training'}
-                {sheet?.teamName ? ` · ${sheet.teamName}` : ''}
-                {' · '}sheet {sheet?.sheetStatus || selected.sheet_status || 'open'}
+              <p className="mt-1 text-xs text-zinc-500">
+                sheet {sheet?.sheetStatus || selected.sheet_status || 'open'}
                 {' · '}capacity {selected.capacity || 'not set'}
-                {sheet?.seeded ? ` · seeded ${sheet.seeded} absent` : ''}
+                {sheet?.seeded ? ` · seeded ${sheet.seeded}` : ''}
+                {sheet?.teamName ? ` · ${sheet.teamName}` : ''}
               </p>
             ) : null}
-          </CardHeader>
-          <CardContent className="grid gap-4">
-            {selected ? (
-              <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-                <Button size="sm" className="w-full sm:w-auto" variant="outline" onClick={() => void sheetAction('seed')} disabled={locked}>Seed absent list</Button>
-                <Button size="sm" className="w-full sm:w-auto" variant="outline" onClick={() => void sheetAction('submit')} disabled={locked || sheet?.sheetStatus === 'submitted'}>Submit sheet</Button>
-                <Button size="sm" className="w-full sm:w-auto" onClick={() => void sheetAction('verify')} disabled={locked}>Verify (admin)</Button>
-                <Button size="sm" className="w-full sm:w-auto" variant="ghost" onClick={() => void sheetAction('reopen')} disabled={!locked && sheet?.sheetStatus === 'open'}>Reopen</Button>
-              </div>
-            ) : null}
+          </div>
 
-            <div className="flex flex-wrap gap-2 text-xs text-zinc-400">
-              {counts.map((item) => (
-                <span key={item.status} className="rounded-full border border-white/10 px-3 py-1 capitalize">
-                  {item.status} {item.count}
-                </span>
-              ))}
+          {selected && hasSheetActions ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                aria-label="Sheet settings"
+                className={cn(
+                  buttonVariants({ variant: 'outline', size: 'icon' }),
+                  'shrink-0 border-white/15 bg-black/35 text-zinc-200 hover:bg-white/10',
+                )}
+              >
+                <Settings2 className="size-4" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-48 border-white/10 bg-zinc-950 text-zinc-100">
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel className="text-zinc-400">Sheet actions</DropdownMenuLabel>
+                  <DropdownMenuSeparator className="bg-white/10" />
+                  {canSeed ? (
+                    <DropdownMenuItem
+                      disabled={locked}
+                      onClick={() => void sheetAction('seed')}
+                      className="focus:bg-white/10 focus:text-white"
+                    >
+                      Seed absent list
+                    </DropdownMenuItem>
+                  ) : null}
+                  {canSubmit ? (
+                    <DropdownMenuItem
+                      disabled={locked || sheet?.sheetStatus === 'submitted'}
+                      onClick={() => void sheetAction('submit')}
+                      className="focus:bg-white/10 focus:text-white"
+                    >
+                      Submit sheet
+                    </DropdownMenuItem>
+                  ) : null}
+                  {canVerify ? (
+                    <DropdownMenuItem
+                      disabled={locked}
+                      onClick={() => void sheetAction('verify')}
+                      className="focus:bg-white/10 focus:text-white"
+                    >
+                      Verify (admin)
+                    </DropdownMenuItem>
+                  ) : null}
+                  {canReopen ? (
+                    <DropdownMenuItem
+                      disabled={!locked && sheet?.sheetStatus === 'open'}
+                      onClick={() => void sheetAction('reopen')}
+                      className="focus:bg-white/10 focus:text-white"
+                    >
+                      Reopen
+                    </DropdownMenuItem>
+                  ) : null}
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+        </div>
+
+        <div className="grid grid-cols-4 gap-1.5">
+          {counts.map((item) => (
+            <div
+              key={item.status}
+              className="rounded-xl border border-white/10 bg-black/30 px-2 py-2 text-center"
+            >
+              <p className="text-[10px] uppercase tracking-wide text-zinc-500">{item.status}</p>
+              <p className="mt-0.5 text-sm font-semibold tabular-nums text-white">{item.count}</p>
             </div>
+          ))}
+        </div>
+      </div>
 
-            <div className="sticky top-14 z-10 -mx-(--card-spacing) grid gap-3 border-b border-white/10 bg-[rgba(12,12,14,0.94)] px-(--card-spacing) py-3 backdrop-blur-xl">
-              <div className="grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-black/35 p-1">
-                <button
-                  type="button"
-                  onClick={() => { setTab('waiting'); setStatusFilter('all'); }}
-                  className={`rounded-xl px-3 py-2 text-sm font-medium transition ${tab === 'waiting' ? 'bg-[#e7c15a]/15 text-[#e7c15a]' : 'text-zinc-300 hover:bg-white/5'}`}
-                >
-                  Waiting · {waitingCount}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setTab('checked_in'); setStatusFilter('all'); }}
-                  className={`rounded-xl px-3 py-2 text-sm font-medium transition ${tab === 'checked_in' ? 'bg-[#e7c15a]/15 text-[#e7c15a]' : 'text-zinc-300 hover:bg-white/5'}`}
-                >
-                  Checked in · {checkedInCount}
-                </button>
-              </div>
+      <PinBelowHeader
+        pinId="attendance-toolbar"
+        className="grid gap-2 rounded-2xl border border-white/10 bg-[rgba(8,8,10,0.98)] px-4 py-3 shadow-[0_12px_28px_rgba(0,0,0,0.45)] backdrop-blur-xl"
+      >
+        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+          <input
+            className={controlClass}
+            value={query}
+            placeholder="Search both tabs: name · ID · phone"
+            onChange={(event) => setQuery(event.target.value)}
+            disabled={!shiftId || locked}
+          />
+          <select
+            className={cn(controlClass, 'h-11 capitalize sm:w-40')}
+            value={statusFilter}
+            onChange={(event) => {
+              const value = event.target.value as AttendanceStatus | 'all';
+              setStatusFilter(value);
+              if (value === 'absent') setTab('waiting');
+              else if (value !== 'all') setTab('checked_in');
+            }}
+            disabled={!shiftId}
+            aria-label="Filter by status"
+          >
+            <option value="all">All statuses</option>
+            {ATTENDANCE_STATUSES.map((status) => (
+              <option key={status} value={status}>
+                {status}
+              </option>
+            ))}
+          </select>
+        </div>
 
-              <div className="flex flex-wrap gap-1">
-                {([
-                  ['all', 'All'],
-                  ...ATTENDANCE_STATUSES.map((status) => [status, status] as const),
-                ] as const).map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => {
-                      setStatusFilter(value);
-                      if (value === 'absent') setTab('waiting');
-                      else if (value !== 'all') setTab('checked_in');
-                    }}
-                    className={cn(
-                      'rounded-full border px-3 py-1 text-xs capitalize transition',
-                      statusFilter === value
-                        ? 'border-[#e7c15a]/50 bg-[#e7c15a]/15 text-[#e7c15a]'
-                        : 'border-white/10 text-zinc-400 hover:bg-white/5',
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+        <div className="grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-black/35 p-1">
+          <button
+            type="button"
+            onClick={() => { setTab('waiting'); setStatusFilter('all'); }}
+            className={`rounded-xl px-3 py-2.5 text-sm font-medium transition ${tab === 'waiting' ? 'bg-[#e7c15a]/15 text-[#e7c15a]' : 'text-zinc-300 hover:bg-white/5'}`}
+          >
+            Waiting · {waitingCount}
+          </button>
+          <button
+            type="button"
+            onClick={() => { setTab('checked_in'); setStatusFilter('all'); }}
+            className={`rounded-xl px-3 py-2.5 text-sm font-medium transition ${tab === 'checked_in' ? 'bg-[#e7c15a]/15 text-[#e7c15a]' : 'text-zinc-300 hover:bg-white/5'}`}
+          >
+            Checked in · {checkedInCount}
+          </button>
+        </div>
+      </PinBelowHeader>
 
-              <input
-                className={controlClass}
-                value={query}
-                placeholder="Search both tabs: name · ID · phone"
-                onChange={(event) => setQuery(event.target.value)}
-                disabled={!shiftId || locked}
-              />
-            </div>
-
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]">
+        <Card className="overflow-visible">
+          <CardContent className="grid gap-4 pt-6">
             {query.trim() && searchHits.length > 0 ? (
               <div className="grid gap-2">
                 <p className="text-xs uppercase tracking-wide text-[#e7c15a]">Search results</p>
-                {searchHits.map(({ person, row }) => (
-                  <div
-                    key={person.id}
-                    className={cn(
-                      'grid gap-2 rounded-2xl border px-3 py-3',
-                      identityId === person.id
-                        ? 'border-[#e7c15a]/60 bg-[#e7c15a]/10'
-                        : 'border-[#e7c15a]/30 bg-[#e7c15a]/5',
-                    )}
-                  >
-                    <button
-                      type="button"
-                      className="min-w-0 rounded-xl text-left transition hover:bg-white/5"
-                      onClick={() => setIdentityId(person.id)}
+                {searchHits.map(({ person, row }) => {
+                  const alreadyPresent = row?.status === 'present';
+                  const checkIn = formatCheckIn(row?.checked_in_at);
+                  return (
+                    <div
+                      key={person.id}
+                      className={cn(
+                        'grid gap-2 rounded-2xl border px-3 py-3',
+                        alreadyPresent
+                          ? 'border-emerald-500/40 bg-emerald-500/10'
+                          : identityId === person.id
+                            ? 'border-[#e7c15a]/60 bg-[#e7c15a]/10'
+                            : 'border-[#e7c15a]/30 bg-[#e7c15a]/5',
+                      )}
                     >
-                      <p className="truncate text-sm text-white">{formatVolunteerName(person)}</p>
-                      <p className="text-xs text-zinc-400">
-                        {person.registration_id} · {person.sector}
-                        {row ? ` · ${row.status}` : ' · not on sheet yet'}
-                        {row?.checked_in_at ? ` · in ${formatCheckIn(row.checked_in_at)}` : ''}
-                        <span className="ml-1 text-[#e7c15a]">· tap for ID</span>
-                      </p>
-                    </button>
-                    <input
-                      className={controlClass}
-                      value={notesByPerson[person.id] ?? row?.notes ?? ''}
-                      placeholder="Optional note for this mark"
-                      disabled={locked}
-                      onChange={(event) => setNotesByPerson((current) => ({ ...current, [person.id]: event.target.value }))}
-                    />
-                    <div className="grid grid-cols-2 gap-1 sm:grid-cols-4">
-                      {ATTENDANCE_STATUSES.map((status) => (
-                        <Button
-                          key={status}
-                          size="sm"
-                          className="w-full capitalize"
-                          variant={row?.status === status ? 'default' : status === 'present' ? 'default' : 'outline'}
-                          onClick={() => void mark(person.id, status)}
+                      <button
+                        type="button"
+                        className="min-w-0 rounded-xl text-left transition hover:bg-white/5"
+                        onClick={() => setIdentityId(person.id)}
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="truncate text-sm text-white">{formatVolunteerName(person)}</p>
+                          {alreadyPresent ? <PresentBadge checkedInAt={checkIn} /> : null}
+                        </div>
+                        <p className="mt-1 text-xs text-zinc-400">
+                          {person.registration_id} · {person.sector}
+                          {row && !alreadyPresent ? ` · ${row.status}` : null}
+                          {!row ? ' · not on sheet yet' : null}
+                          {row?.checked_in_at && !alreadyPresent ? ` · in ${checkIn}` : ''}
+                          <span className="ml-1 text-[#e7c15a]">· tap for ID</span>
+                        </p>
+                      </button>
+                      {alreadyPresent ? (
+                        <p className="text-xs text-emerald-300/90">
+                          Already presented for this shift. Only Absent can change this mark.
+                        </p>
+                      ) : (
+                        <input
+                          className={controlClass}
+                          value={notesByPerson[person.id] ?? row?.notes ?? ''}
+                          placeholder="Optional note for this mark"
                           disabled={locked}
-                        >
-                          {status}
-                        </Button>
-                      ))}
+                          onChange={(event) => setNotesByPerson((current) => ({ ...current, [person.id]: event.target.value }))}
+                        />
+                      )}
+                      <MarkButtons
+                        currentStatus={row?.status}
+                        locked={locked}
+                        canMark={canMark}
+                        compact
+                        onMark={(status) => void mark(person.id, status)}
+                      />
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : query.trim() ? (
               <p className="text-sm text-zinc-400">No matches on this sheet{sheet?.kind === 'ops' ? ' / team' : ''}.</p>
@@ -402,59 +569,63 @@ function AttendanceDesk() {
                 {tab === 'waiting' ? 'Still absent' : 'Present · late · excused'}
               </p>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {visibleRows.map((row) => {
-                const person = one(row.registrations);
-                const selected = Boolean(person && identityId === person.id);
-                return (
-                  <div
-                    key={row.id}
-                    className={cn(
-                      'grid gap-2 rounded-2xl border px-3 py-3',
-                      selected
-                        ? 'border-[#e7c15a]/50 bg-[#e7c15a]/10'
-                        : 'border-white/10 bg-black/25',
-                    )}
-                  >
-                    <button
-                      type="button"
-                      className="min-w-0 rounded-xl text-left transition hover:bg-white/5 disabled:cursor-default"
-                      disabled={!person}
-                      onClick={() => person && setIdentityId(person.id)}
+                {visibleRows.map((row) => {
+                  const person = one(row.registrations);
+                  const selectedPerson = Boolean(person && identityId === person.id);
+                  const alreadyPresent = row.status === 'present';
+                  const checkIn = formatCheckIn(row.checked_in_at);
+                  return (
+                    <div
+                      key={row.id}
+                      className={cn(
+                        'grid gap-2 rounded-2xl border px-3 py-3',
+                        alreadyPresent
+                          ? 'border-emerald-500/40 bg-emerald-500/10'
+                          : selectedPerson
+                            ? 'border-[#e7c15a]/50 bg-[#e7c15a]/10'
+                            : 'border-white/10 bg-black/25',
+                      )}
                     >
-                      <p className="truncate text-sm font-medium text-white">{person ? formatVolunteerName(person) : 'Volunteer'}</p>
-                      <p className="text-xs text-zinc-400">
-                        {person?.registration_id} · {person?.sector} · {row.status}
-                        {row.checked_in_at ? ` · in ${formatCheckIn(row.checked_in_at)}` : ''}
-                        {row.notes ? ` · note: ${row.notes}` : ''}
-                        {person ? <span className="ml-1 text-[#e7c15a]">· tap for ID</span> : null}
-                      </p>
-                    </button>
-                    {person ? (
-                      <input
-                        className={controlClass}
-                        value={notesByPerson[person.id] ?? row.notes ?? ''}
-                        placeholder="Optional note for this mark"
-                        disabled={locked}
-                        onChange={(event) => setNotesByPerson((current) => ({ ...current, [person.id]: event.target.value }))}
-                      />
-                    ) : null}
-                    <div className="grid grid-cols-2 gap-1">
-                      {ATTENDANCE_STATUSES.map((status) => (
-                        <Button
-                          key={status}
-                          size="sm"
-                          className="w-full capitalize"
-                          variant={row.status === status ? 'default' : 'ghost'}
-                          onClick={() => void mark(row.registration_id, status)}
+                      <button
+                        type="button"
+                        className="min-w-0 rounded-xl text-left transition hover:bg-white/5 disabled:cursor-default"
+                        disabled={!person}
+                        onClick={() => person && setIdentityId(person.id)}
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="truncate text-sm font-medium text-white">{person ? formatVolunteerName(person) : 'Volunteer'}</p>
+                          {alreadyPresent ? <PresentBadge checkedInAt={checkIn} /> : null}
+                        </div>
+                        <p className="mt-1 text-xs text-zinc-400">
+                          {person?.registration_id} · {person?.sector}
+                          {!alreadyPresent ? ` · ${row.status}` : null}
+                          {row.checked_in_at && !alreadyPresent ? ` · in ${checkIn}` : ''}
+                          {row.notes ? ` · note: ${row.notes}` : ''}
+                          {person ? <span className="ml-1 text-[#e7c15a]">· tap for ID</span> : null}
+                        </p>
+                      </button>
+                      {alreadyPresent ? (
+                        <p className="text-xs text-emerald-300/90">
+                          Already presented. Only Absent can change this mark.
+                        </p>
+                      ) : person ? (
+                        <input
+                          className={controlClass}
+                          value={notesByPerson[person.id] ?? row.notes ?? ''}
+                          placeholder="Optional note for this mark"
                           disabled={locked}
-                        >
-                          {status}
-                        </Button>
-                      ))}
+                          onChange={(event) => setNotesByPerson((current) => ({ ...current, [person.id]: event.target.value }))}
+                        />
+                      ) : null}
+                      <MarkButtons
+                        currentStatus={row.status}
+                        locked={locked}
+                        canMark={canMark}
+                        onMark={(status) => void mark(row.registration_id, status)}
+                      />
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
               </div>
               {shiftId && visibleRows.length === 0 && !query.trim() ? (
                 <p className="text-sm text-zinc-400">

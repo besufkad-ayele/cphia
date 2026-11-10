@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { loadAttendanceRows, summarizeAttendance } from '@/app/lib/admin/attendance-query';
+import { periodLabel, shiftPeriod } from '@/app/lib/admin/attendance-columns';
+import {
+  loadAttendanceRows,
+  summarizeAttendance,
+  summarizeTrainingByDay,
+} from '@/app/lib/admin/attendance-query';
+import { attendanceFiltersFromSearchParams } from '@/app/lib/admin/attendance-report-params';
 import { dbError, requireCapability } from '@/app/lib/admin/guard';
 import { hasCapability } from '@/app/lib/admin/permissions';
 import { supervisedTeamIds } from '@/app/lib/admin/team-scope';
@@ -17,14 +23,16 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const gate = await requireCapability(request, 'attendance.view');
+  const gate = await requireCapability(request, 'attendance.reports');
   if (!gate.ok) return gate.error;
   const { id } = await params;
-  const verifiedOnly = request.nextUrl.searchParams.get('verifiedOnly') === '1';
 
   try {
     const supabase = getSupabaseAdmin();
     const scopedTeamIds = await supervisedTeamIds(supabase, gate.session);
+    const filters = attendanceFiltersFromSearchParams(request.nextUrl.searchParams, {
+      verifiedOnly: false,
+    });
 
     const { data: block, error: blockError } = await supabase
       .from('ops_shift_blocks')
@@ -40,18 +48,57 @@ export async function GET(
       }
     }
 
-    const rows = await loadAttendanceRows(supabase, {
-      blockId: id,
-      verifiedOnly,
-      scopedTeamIds,
+    const { data: shiftRows, error: shiftsError } = await supabase
+      .from('ops_shifts')
+      .select('id, name, shift_date, start_time, end_time, sheet_status, kind')
+      .eq('block_id', id)
+      .order('shift_date', { ascending: true })
+      .order('start_time', { ascending: true });
+    if (shiftsError) return dbError(shiftsError);
+
+    const shifts = (shiftRows ?? []).map((shift) => {
+      const period = shiftPeriod(shift.start_time);
+      return {
+        id: shift.id,
+        name: shift.name,
+        shiftDate: shift.shift_date,
+        startTime: String(shift.start_time).slice(0, 5),
+        endTime: String(shift.end_time).slice(0, 5),
+        period: periodLabel(period),
+        periodKey: period,
+        sheetStatus: shift.sheet_status,
+        kind: shift.kind,
+      };
     });
-    const summary = summarizeAttendance(rows);
+
+    // If shiftIds query is present (even empty), honor it. Otherwise default to every sheet in the block.
+    const hasShiftIdsParam = request.nextUrl.searchParams.has('shiftIds');
+    const selectedFromQuery = hasShiftIdsParam
+      ? (filters.shiftIds ?? [])
+      : filters.shiftId
+        ? [filters.shiftId]
+        : shifts.map((shift) => shift.id);
+    const allowed = new Set(shifts.map((shift) => shift.id));
+    const selectedShiftIds = selectedFromQuery.filter((shiftId) => allowed.has(shiftId));
+
+    const rows = selectedShiftIds.length
+      ? await loadAttendanceRows(supabase, {
+          ...filters,
+          blockId: id,
+          shiftId: undefined,
+          shiftIds: selectedShiftIds,
+          scopedTeamIds,
+        })
+      : [];
+    const markSummary = summarizeAttendance(rows);
+    const daySummary = summarizeTrainingByDay(rows);
     const cohort = one(block.ops_cohorts as { name?: string; code?: string } | { name?: string; code?: string }[] | null);
     const team = one(block.ops_teams as { name?: string; code?: string } | { name?: string; code?: string }[] | null);
 
     return NextResponse.json({
-      canExport: hasCapability(gate.session, 'attendance.verify'),
-      verifiedOnly,
+      canExport: hasCapability(gate.session, 'attendance.reports'),
+      verifiedOnly: filters.verifiedOnly !== false,
+      countingMode: 'day',
       block: {
         id: block.id,
         name: block.name,
@@ -65,11 +112,16 @@ export async function GET(
         cohortName: cohort?.name || '',
         teamName: team?.name || '',
       },
-      totals: summary.totals,
-      averages: summary.averages,
-      byDay: summary.byDay,
-      byShift: summary.byShift,
-      byPerson: summary.byPerson,
+      shifts,
+      selectedShiftIds,
+      // Training dashboard (morning+afternoon → one day; late = present)
+      day: daySummary,
+      // Sheet-level (for opening a single morning/afternoon checklist)
+      marks: {
+        totals: markSummary.totals,
+        byShift: markSummary.byShift,
+        byPeriod: markSummary.byPeriod,
+      },
       markCount: rows.length,
     });
   } catch (error) {

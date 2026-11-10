@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { logActivity } from '@/app/lib/admin/activity';
-import { cleanPermissions, defaultPermissions } from '@/app/lib/admin/permissions';
+import { cleanPermissions, defaultPermissions, firstAllowedAdminHref } from '@/app/lib/admin/permissions';
 import { getSessionSecret, setAdminCookie, signAdminJwt } from '@/app/lib/admin/session';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
 
@@ -58,6 +58,7 @@ export async function POST(request: NextRequest) {
     });
     const response = NextResponse.json({
       ok: true,
+      redirectTo: firstAllowedAdminHref(session) || '/admin',
       admin: { email: admin.email, role: admin.role, fullName: admin.full_name },
     });
     setAdminCookie(response, token);

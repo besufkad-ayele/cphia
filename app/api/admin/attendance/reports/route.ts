@@ -14,7 +14,7 @@ function one<T>(value: T | T[] | null | undefined): T | null {
 }
 
 export async function GET(request: NextRequest) {
-  const gate = await requireCapability(request, 'attendance.view');
+  const gate = await requireCapability(request, 'attendance.reports');
   if (!gate.ok) return gate.error;
 
   try {
@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
     if (scopedTeamIds) {
       if (!scopedTeamIds.length) {
         return NextResponse.json({
-          canExport: hasCapability(gate.session, 'attendance.verify'),
+          canExport: hasCapability(gate.session, 'attendance.reports'),
           blocks: [],
           ungroupedShifts: [],
           scoped: true,
@@ -108,7 +108,7 @@ export async function GET(request: NextRequest) {
     });
 
     return NextResponse.json({
-      canExport: hasCapability(gate.session, 'attendance.verify'),
+      canExport: hasCapability(gate.session, 'attendance.reports'),
       blocks: blockCards,
       ungroupedShifts,
       scoped: Boolean(scopedTeamIds),

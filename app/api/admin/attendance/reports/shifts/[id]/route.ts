@@ -18,7 +18,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const gate = await requireCapability(request, 'attendance.view');
+  const gate = await requireCapability(request, 'attendance.reports');
   if (!gate.ok) return gate.error;
   const { id } = await params;
 
@@ -65,7 +65,7 @@ export async function GET(
     }));
 
     return NextResponse.json({
-      canExport: hasCapability(gate.session, 'attendance.verify'),
+      canExport: hasCapability(gate.session, 'attendance.reports'),
       shift: {
         id: shift.id,
         name: shift.name,

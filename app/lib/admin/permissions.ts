@@ -85,6 +85,7 @@ export const MODULE_CAPABILITIES = {
     { key: 'attendance.submit', label: 'Submit sheet', detail: 'Submit a completed sheet for review' },
     { key: 'attendance.verify', label: 'Verify sheet', detail: 'Admin lock of a team or training sheet' },
     { key: 'attendance.reopen', label: 'Reopen sheet', detail: 'Unlock a verified sheet for corrections' },
+    { key: 'attendance.reports', label: 'Reports & export', detail: 'Open attendance reports and download exports' },
   ],
   shifts: [
     { key: 'shifts.view', label: 'View shifts', detail: 'See the duty roster' },
@@ -194,6 +195,30 @@ export function hasFeature(session: { role: string; permissions?: readonly strin
   const permissions = session.permissions ?? [];
   if (permissions.includes(feature)) return true;
   return permissions.some((item) => item.startsWith(`${feature}.`));
+}
+
+/** Map an admin console path to the module that must be granted. */
+export function featureForAdminPath(pathname: string): FeatureKey | null {
+  const path = pathname.replace(/\/+$/, '') || '/admin';
+  if (path === '/admin') return 'dashboard';
+
+  const modules = ADMIN_FEATURES
+    .filter((feature) => feature.href !== '/admin')
+    .slice()
+    .sort((a, b) => b.href.length - a.href.length);
+
+  for (const feature of modules) {
+    if (path === feature.href || path.startsWith(`${feature.href}/`)) return feature.key;
+  }
+  return null;
+}
+
+/** First module route the session can open (nav order). Null if none are granted. */
+export function firstAllowedAdminHref(session: { role: string; permissions?: readonly string[] }) {
+  for (const feature of ADMIN_FEATURES) {
+    if (hasFeature(session, feature.key)) return feature.href;
+  }
+  return null;
 }
 
 function moduleDetailKeys(permissions: readonly string[], feature: FeatureKey) {

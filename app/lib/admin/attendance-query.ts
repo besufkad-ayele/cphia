@@ -5,6 +5,8 @@ import {
   type AttendanceExportColumnId,
 } from '@/app/lib/admin/attendance-columns';
 
+export type AttendancePeriodFilter = 'morning' | 'afternoon';
+
 export type AttendanceReportFilters = {
   fromDate?: string;
   toDate?: string;
@@ -15,6 +17,14 @@ export type AttendanceReportFilters = {
   search?: string;
   blockId?: string;
   shiftId?: string;
+  /** Multi-shift selection; when set, overrides single shiftId. */
+  shiftIds?: string[];
+  /** Volunteer registration sector (exact match). */
+  sector?: string;
+  /** Health sub-sector; only meaningful with sector=Health. */
+  healthSubsector?: string;
+  /** Morning / afternoon derived from shift start_time. Empty = all. */
+  periods?: AttendancePeriodFilter[];
   /** Default true for official exports; false includes open/submitted (pending) sheets. */
   verifiedOnly?: boolean;
   scopedTeamIds?: string[] | null;
@@ -109,18 +119,34 @@ export async function loadAttendanceRows(
   if (filters.teamId) shiftsQuery = shiftsQuery.eq('team_id', filters.teamId);
   if (filters.kind) shiftsQuery = shiftsQuery.eq('kind', filters.kind);
   if (filters.blockId) shiftsQuery = shiftsQuery.eq('block_id', filters.blockId);
-  if (filters.shiftId) shiftsQuery = shiftsQuery.eq('id', filters.shiftId);
+  const selectedShiftIds = (filters.shiftIds?.length
+    ? filters.shiftIds
+    : filters.shiftId
+      ? [filters.shiftId]
+      : []
+  ).filter(Boolean);
+  if (selectedShiftIds.length === 1) {
+    shiftsQuery = shiftsQuery.eq('id', selectedShiftIds[0]);
+  } else if (selectedShiftIds.length > 1) {
+    shiftsQuery = shiftsQuery.in('id', selectedShiftIds);
+  }
 
   if (filters.scopedTeamIds) {
     if (!filters.scopedTeamIds.length) return [];
     shiftsQuery = shiftsQuery.eq('kind', 'ops').in('team_id', filters.scopedTeamIds);
   }
 
-  const { data: shifts, error: shiftsError } = await shiftsQuery;
+  const { data: shiftsRaw, error: shiftsError } = await shiftsQuery;
   if (shiftsError) throw shiftsError;
-  if (!shifts?.length) return [];
 
-  const shiftMap = new Map((shifts as ShiftRow[]).map((shift) => [shift.id, shift]));
+  const periodSet = new Set(filters.periods ?? []);
+  const shifts = ((shiftsRaw ?? []) as ShiftRow[]).filter((shift) => {
+    if (!periodSet.size) return true;
+    return periodSet.has(shiftPeriod(shift.start_time));
+  });
+  if (!shifts.length) return [];
+
+  const shiftMap = new Map(shifts.map((shift) => [shift.id, shift]));
   const shiftIds = [...shiftMap.keys()];
 
   let marksQuery = supabase
@@ -173,6 +199,14 @@ export async function loadAttendanceRows(
     if (!shift) continue;
     const person = one(row.registrations as RegistrationJoin | RegistrationJoin[] | null);
     if (person?.review_status && person.review_status !== 'approved') continue;
+
+    if (filters.sector) {
+      if (!person?.sector || person.sector !== filters.sector) continue;
+    }
+    if (filters.healthSubsector) {
+      const subs = Array.isArray(person?.health_subsectors) ? person.health_subsectors : [];
+      if (!subs.includes(filters.healthSubsector)) continue;
+    }
 
     if (search) {
       if (!person) continue;
@@ -235,6 +269,178 @@ export function attendedCount(status: string) {
   return status === 'present' || status === 'late' ? 1 : 0;
 }
 
+/** Training rates: late counts as present/attended. Excused ignored for now → absent unless present/late. */
+export function isAttendedStatus(status: string) {
+  return status === 'present' || status === 'late';
+}
+
+type PersonDayKey = string;
+
+/**
+ * Training / bulk reporting: collapse morning+afternoon on the same date into one person-day.
+ * Came either period → attended that day. Missed both → absent. Came both → still one day.
+ */
+export function summarizeTrainingByDay(rows: AttendanceFlatRow[]) {
+  const personDays = new Map<
+    PersonDayKey,
+    {
+      registrationId: string;
+      publicId: string;
+      name: string;
+      sector: string;
+      date: string;
+      attended: boolean;
+      morningStatus: string | null;
+      afternoonStatus: string | null;
+    }
+  >();
+
+  for (const row of rows) {
+    const person = row.registration;
+    if (!person?.id) continue;
+    const sector = person.sector || 'Unassigned';
+    const key = `${person.id}|${row.shift_date}`;
+    const current = personDays.get(key) || {
+      registrationId: person.id,
+      publicId: person.registration_id || '',
+      name: [person.first_name, person.middle_name, person.last_name].filter(Boolean).join(' '),
+      sector,
+      date: row.shift_date,
+      attended: false,
+      morningStatus: null,
+      afternoonStatus: null,
+    };
+    if (isAttendedStatus(row.status)) current.attended = true;
+    if (row.period === 'morning') current.morningStatus = row.status;
+    if (row.period === 'afternoon') current.afternoonStatus = row.status;
+    personDays.set(key, current);
+  }
+
+  const dayList = [...personDays.values()];
+
+  const byPerson = new Map<
+    string,
+    {
+      registrationId: string;
+      publicId: string;
+      name: string;
+      sector: string;
+      daysTotal: number;
+      daysAttended: number;
+      daysAbsent: number;
+    }
+  >();
+  const bySector = new Map<
+    string,
+    {
+      sector: string;
+      people: Set<string>;
+      daysTotal: number;
+      daysAttended: number;
+      daysAbsent: number;
+    }
+  >();
+  const byDay = new Map<
+    string,
+    { date: string; people: number; attended: number; absent: number; shifts: Set<string> }
+  >();
+
+  for (const row of rows) {
+    const day = byDay.get(row.shift_date) || {
+      date: row.shift_date,
+      people: 0,
+      attended: 0,
+      absent: 0,
+      shifts: new Set<string>(),
+    };
+    day.shifts.add(row.shift_id);
+    byDay.set(row.shift_date, day);
+  }
+
+  for (const entry of dayList) {
+    const person = byPerson.get(entry.registrationId) || {
+      registrationId: entry.registrationId,
+      publicId: entry.publicId,
+      name: entry.name,
+      sector: entry.sector,
+      daysTotal: 0,
+      daysAttended: 0,
+      daysAbsent: 0,
+    };
+    person.daysTotal += 1;
+    if (entry.attended) person.daysAttended += 1;
+    else person.daysAbsent += 1;
+    byPerson.set(entry.registrationId, person);
+
+    const sector = bySector.get(entry.sector) || {
+      sector: entry.sector,
+      people: new Set<string>(),
+      daysTotal: 0,
+      daysAttended: 0,
+      daysAbsent: 0,
+    };
+    sector.people.add(entry.registrationId);
+    sector.daysTotal += 1;
+    if (entry.attended) sector.daysAttended += 1;
+    else sector.daysAbsent += 1;
+    bySector.set(entry.sector, sector);
+
+    const day = byDay.get(entry.date);
+    if (day) {
+      day.people += 1;
+      if (entry.attended) day.attended += 1;
+      else day.absent += 1;
+    }
+  }
+
+  const totals = {
+    people: byPerson.size,
+    daysTotal: dayList.length,
+    daysAttended: dayList.filter((entry) => entry.attended).length,
+    daysAbsent: dayList.filter((entry) => !entry.attended).length,
+  };
+  const participationRate = totals.daysTotal ? totals.daysAttended / totals.daysTotal : 0;
+
+  return {
+    mode: 'day' as const,
+    rule: 'late_counts_as_present; morning_or_afternoon_counts_as_one_day',
+    totals: {
+      ...totals,
+      participationPercent: Math.round(participationRate * 1000) / 10,
+    },
+    byPerson: [...byPerson.values()]
+      .map((person) => ({
+        ...person,
+        participationPercent: person.daysTotal
+          ? Math.round((person.daysAttended / person.daysTotal) * 1000) / 10
+          : 0,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name) || a.sector.localeCompare(b.sector)),
+    bySector: [...bySector.values()]
+      .map(({ people, ...sector }) => ({
+        ...sector,
+        peopleCount: people.size,
+        participationPercent: sector.daysTotal
+          ? Math.round((sector.daysAttended / sector.daysTotal) * 1000) / 10
+          : 0,
+      }))
+      .sort((a, b) => b.daysAttended - a.daysAttended || a.sector.localeCompare(b.sector)),
+    byDay: [...byDay.values()]
+      .map(({ shifts, ...day }) => ({
+        ...day,
+        shifts: shifts.size,
+        participationPercent: day.people ? Math.round((day.attended / day.people) * 1000) / 10 : 0,
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date)),
+    personDays: dayList
+      .map((entry) => ({
+        ...entry,
+        status: entry.attended ? 'attended' : 'absent',
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name)),
+  };
+}
+
 export function summarizeAttendance(rows: AttendanceFlatRow[]) {
   const byShift = new Map<
     string,
@@ -262,6 +468,7 @@ export function summarizeAttendance(rows: AttendanceFlatRow[]) {
       registrationId: string;
       publicId: string;
       name: string;
+      sector: string;
       present: number;
       late: number;
       absent: number;
@@ -270,9 +477,26 @@ export function summarizeAttendance(rows: AttendanceFlatRow[]) {
       attended: number;
     }
   >();
+  const bySector = new Map<
+    string,
+    {
+      sector: string;
+      present: number;
+      late: number;
+      absent: number;
+      excused: number;
+      total: number;
+      attended: number;
+      people: Set<string>;
+    }
+  >();
   const byDay = new Map<
     string,
     { date: string; present: number; late: number; absent: number; excused: number; total: number; attended: number; shifts: number }
+  >();
+  const byPeriod = new Map<
+    string,
+    { period: string; present: number; late: number; absent: number; excused: number; total: number; attended: number }
   >();
 
   for (const row of rows) {
@@ -318,12 +542,31 @@ export function summarizeAttendance(rows: AttendanceFlatRow[]) {
     }
     byDay.set(row.shift_date, day);
 
+    const periodKey = row.period_label;
+    const periodSummary = byPeriod.get(periodKey) || {
+      period: periodKey,
+      present: 0,
+      late: 0,
+      absent: 0,
+      excused: 0,
+      total: 0,
+      attended: 0,
+    };
+    periodSummary.total += 1;
+    periodSummary.attended += attendedCount(row.status);
+    if (row.status === 'present' || row.status === 'late' || row.status === 'absent' || row.status === 'excused') {
+      periodSummary[row.status] += 1;
+    }
+    byPeriod.set(periodKey, periodSummary);
+
     const person = row.registration;
     if (!person?.id) continue;
+    const sectorName = person.sector || 'Unassigned';
     const personSummary = byPerson.get(person.id) || {
       registrationId: person.id,
       publicId: person.registration_id || '',
       name: [person.first_name, person.middle_name, person.last_name].filter(Boolean).join(' '),
+      sector: sectorName,
       present: 0,
       late: 0,
       absent: 0,
@@ -337,6 +580,24 @@ export function summarizeAttendance(rows: AttendanceFlatRow[]) {
       personSummary[row.status] += 1;
     }
     byPerson.set(person.id, personSummary);
+
+    const sectorSummary = bySector.get(sectorName) || {
+      sector: sectorName,
+      present: 0,
+      late: 0,
+      absent: 0,
+      excused: 0,
+      total: 0,
+      attended: 0,
+      people: new Set<string>(),
+    };
+    sectorSummary.total += 1;
+    sectorSummary.attended += attendedCount(row.status);
+    sectorSummary.people.add(person.id);
+    if (row.status === 'present' || row.status === 'late' || row.status === 'absent' || row.status === 'excused') {
+      sectorSummary[row.status] += 1;
+    }
+    bySector.set(sectorName, sectorSummary);
   }
 
   // Fix day.shifts = number of distinct shifts that day
@@ -393,9 +654,31 @@ export function summarizeAttendance(rows: AttendanceFlatRow[]) {
         ...person,
         participationPercent: person.total ? Math.round((person.attended / person.total) * 1000) / 10 : 0,
       }))
-      .sort((a, b) => a.name.localeCompare(b.name)),
+      .sort((a, b) => a.name.localeCompare(b.name) || a.sector.localeCompare(b.sector)),
+    bySector: [...bySector.values()]
+      .map(({ people, ...sector }) => ({
+        ...sector,
+        peopleCount: people.size,
+        participationPercent: sector.total ? Math.round((sector.attended / sector.total) * 1000) / 10 : 0,
+      }))
+      .sort((a, b) => b.attended - a.attended || a.sector.localeCompare(b.sector)),
+    byPeriod: [...byPeriod.values()]
+      .map((period) => ({
+        ...period,
+        participationPercent: period.total ? Math.round((period.attended / period.total) * 1000) / 10 : 0,
+      }))
+      .sort((a, b) => a.period.localeCompare(b.period)),
     exceptions: rows.filter((row) => row.status === 'absent' || row.status === 'late'),
   };
+}
+
+export function parseAttendancePeriods(raw: string | null | undefined): AttendancePeriodFilter[] | undefined {
+  if (!raw?.trim()) return undefined;
+  const values = raw
+    .split(',')
+    .map((item) => item.trim().toLowerCase())
+    .filter((item): item is AttendancePeriodFilter => item === 'morning' || item === 'afternoon');
+  return values.length ? [...new Set(values)] : undefined;
 }
 
 export function cellForAttendanceExport(
