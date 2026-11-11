@@ -318,7 +318,7 @@ export default function AdminDashboardPage() {
             <CardDescription>
               {sector === 'Health'
                 ? 'Useful when staffing facility vs public-health roles.'
-                : 'Sub-sectors for UNICEF, Serve Global, Ethiopian Youth Council, and health.'}
+                : 'Sub-sectors for UNICEF, U-Report, Serve Global, Ethiopian Youth Council, and health.'}
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-2">

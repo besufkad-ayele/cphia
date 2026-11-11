@@ -58,7 +58,7 @@ export const HEALTH_SUBSECTORS = [
 
 export type HealthSubsector = (typeof HEALTH_SUBSECTORS)[number];
 
-/** Sub-sectors for UNICEF, Serve Global, and Ethiopian Youth Council. */
+/** Sub-sectors for UNICEF, U-Report, Serve Global, and Ethiopian Youth Council. */
 export const ROLE_SUBSECTORS = [
   'Tourism',
   'Transport',
@@ -70,6 +70,7 @@ export type RoleSubsector = (typeof ROLE_SUBSECTORS)[number];
 
 export const ROLE_ASSIGNMENT_SECTORS = [
   'UNICEF',
+  'U-Report',
   'Serve Global',
   'Ethiopian Youth Council',
 ] as const;
