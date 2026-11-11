@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { Inter, Roboto } from 'next/font/google';
-import { ThemeProvider } from 'next-themes';
 import { BrandTransitionGate } from '@/components/brand/brand-transition-gate';
 import { cn } from '@/lib/utils';
 import { Toaster } from '@/components/ui/sonner';
@@ -36,13 +35,11 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={cn('font-sans', inter.variable, roboto.variable)} suppressHydrationWarning>
-      <body suppressHydrationWarning>
-        <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
-          {children}
-          <BrandTransitionGate />
-          <Toaster />
-        </ThemeProvider>
+    <html lang="en" className={cn('light font-sans', inter.variable, roboto.variable)}>
+      <body>
+        {children}
+        <BrandTransitionGate />
+        <Toaster />
       </body>
     </html>
   );

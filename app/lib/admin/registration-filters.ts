@@ -33,6 +33,11 @@ export function sanitizeSearch(value: string) {
   return value.replace(/[,.%()\\]/g, ' ').trim().slice(0, 80);
 }
 
+/** Collapse punctuation so CPHIA-26-123, CPHIA 26 123, and 123 all compare cleanly. */
+export function normalizeSearchKey(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
 /** Spellings that may still exist on older registration rows for one canonical sector. */
 export function sectorFilterValues(canonical: string) {
   const normalized = normalizeSector(canonical) || canonical;
@@ -81,7 +86,8 @@ export function applyRegistrationFilters<T extends FilterableQuery>(
     next = next.contains(subsectorStorageColumn(filters.subsector), [filters.subsector]) as T;
   }
   if (filters.search) {
-    const tokens = filters.search.split(/\s+/).filter(Boolean);
+    const raw = filters.search.trim();
+    const tokens = raw.split(/\s+/).filter(Boolean);
     const fields = [
       'first_name',
       'middle_name',
@@ -94,11 +100,22 @@ export function applyRegistrationFilters<T extends FilterableQuery>(
     ];
     // Match full phrase on each field, and also each token (supports “name father grandfather”)
     const clauses = [
-      ...fields.map((field) => `${field}.ilike.%${filters.search}%`),
+      ...fields.map((field) => `${field}.ilike.%${raw}%`),
       ...tokens.flatMap((token) =>
-        ['first_name', 'middle_name', 'last_name'].map((field) => `${field}.ilike.%${token}%`),
+        ['first_name', 'middle_name', 'last_name', 'registration_id', 'fan_number', 'phone'].map(
+          (field) => `${field}.ilike.%${token}%`,
+        ),
       ),
     ];
+    // UUID / internal id exact match when the query looks like one.
+    if (/^[0-9a-f-]{8,}$/i.test(raw)) {
+      clauses.push(`id.eq.${raw}`);
+    }
+    // Numeric / code tail of public IDs like CPHIA-26-369215
+    const digits = raw.replace(/\D+/g, '');
+    if (digits.length >= 4) {
+      clauses.push(`registration_id.ilike.%${digits}%`);
+    }
     next = next.or([...new Set(clauses)].join(',')) as T;
   }
   return next;
@@ -115,6 +132,7 @@ export function applyNameSort<T extends { order: (column: string, options?: { as
 
 export function matchesVolunteerSearch(
   row: {
+    id?: string;
     firstName?: string;
     middleName?: string;
     lastName?: string;
@@ -129,6 +147,17 @@ export function matchesVolunteerSearch(
 ) {
   const q = search.trim().toLowerCase();
   if (!q) return true;
+
+  const identityFields = [row.id, row.registrationId, row.fanNumber, row.phone, row.secondaryPhone, row.email]
+    .filter(Boolean)
+    .map((value) => String(value).toLowerCase());
+  const identityCompact = identityFields.map(normalizeSearchKey).join(' ');
+  const queryCompact = normalizeSearchKey(q);
+
+  // Public ID / UUID / FAN / phone: match even with different spacing or hyphens.
+  if (queryCompact.length >= 4 && identityCompact.includes(queryCompact)) return true;
+  if (identityFields.some((field) => field.includes(q))) return true;
+
   const haystack = [
     row.firstName,
     row.middleName,
@@ -139,21 +168,72 @@ export function matchesVolunteerSearch(
     row.secondaryPhone,
     row.fanNumber,
     row.registrationId,
+    row.id,
   ]
     .filter(Boolean)
     .join(' ')
     .toLowerCase();
-  return q.split(/\s+/).every((token) => haystack.includes(token));
+  const haystackCompact = normalizeSearchKey(haystack);
+
+  return q.split(/\s+/).every((token) => {
+    if (haystack.includes(token)) return true;
+    const compact = normalizeSearchKey(token);
+    return compact.length > 0 && haystackCompact.includes(compact);
+  });
+}
+
+/** PostgREST/Supabase usually hard-caps one response at 1000 rows. */
+export const SUPABASE_ROW_PAGE = 1000;
+
+type RangeQuery = {
+  range: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: unknown; count?: number | null }>;
+};
+
+/**
+ * Walk `.range()` pages until every matching row is loaded.
+ * Use for admin index / export / metrics — never trust a single unbounded select.
+ */
+export async function fetchAllPaged<T>(
+  buildQuery: () => RangeQuery,
+  options?: { pageSize?: number; maxRows?: number },
+): Promise<{ rows: T[]; total: number }> {
+  const pageSize = options?.pageSize ?? SUPABASE_ROW_PAGE;
+  const maxRows = options?.maxRows ?? 50000;
+  const rows: T[] = [];
+  let total = 0;
+  let offset = 0;
+
+  while (offset < maxRows) {
+    const { data, error, count } = await buildQuery().range(offset, offset + pageSize - 1);
+    if (error) throw error;
+    const chunk = (data ?? []) as T[];
+    if (typeof count === 'number') total = count;
+    rows.push(...chunk);
+    if (chunk.length < pageSize) break;
+    offset += pageSize;
+    if (total > 0 && rows.length >= total) break;
+  }
+
+  return { rows, total: total || rows.length };
 }
 
 export async function registrationStatusMetrics(
   supabase: SupabaseClient,
   filters: Omit<RegistrationFilterParams, 'status'>,
 ): Promise<RegistrationMetrics> {
-  let query = supabase.from('registrations').select('review_status, email_status, device_flag');
-  query = applyRegistrationFilters(query as never, filters, { includeStatus: false }) as typeof query;
-  const { data } = await query;
-  return (data ?? []).reduce(
+  const { rows } = await fetchAllPaged<{
+    review_status: string | null;
+    email_status: string | null;
+    device_flag: string | null;
+  }>(() => {
+    let query = supabase.from('registrations').select('review_status, email_status, device_flag', {
+      count: 'exact',
+    });
+    query = applyRegistrationFilters(query as never, filters, { includeStatus: false }) as typeof query;
+    return query as never;
+  });
+
+  return rows.reduce(
     (acc, row) => {
       const value = deriveAdminStatus(row.review_status, row.email_status, row.device_flag);
       acc.total += 1;

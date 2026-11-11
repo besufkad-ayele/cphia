@@ -6,6 +6,7 @@ import { requireFeature } from '@/app/lib/admin/guard';
 import {
   applyNameSort,
   applyRegistrationFilters,
+  fetchAllPaged,
   parseSector,
   parseSubsector,
   registrationStatusMetrics,
@@ -95,7 +96,7 @@ export async function GET(request: NextRequest) {
   const searchParam = url.searchParams.get('search');
   const mode = url.searchParams.get('mode');
   const page = Math.max(1, Number(url.searchParams.get('page') || 1));
-  const pageSize = Math.min(mode === 'index' ? 3000 : 100, Math.max(10, Number(url.searchParams.get('pageSize') || 25)));
+  const pageSize = Math.min(mode === 'index' ? 20000 : 100, Math.max(10, Number(url.searchParams.get('pageSize') || 25)));
   const status = statusParam && isAdminStatus(statusParam) ? statusParam : null;
   const search = searchParam ? sanitizeSearch(searchParam) : '';
   const sector = parseSector(url.searchParams.get('sector'));
@@ -106,22 +107,34 @@ export async function GET(request: NextRequest) {
 
   try {
     const supabase = getSupabaseAdmin();
-    let query = supabase
-      .from('registrations')
-      .select(SELECT_COLS, { count: 'exact' });
 
-    query = applyNameSort(query as never) as typeof query;
-    query = applyRegistrationFilters(query as never, filters) as typeof query;
+    function buildListQuery() {
+      let query = supabase.from('registrations').select(SELECT_COLS, { count: 'exact' });
+      query = applyNameSort(query as never) as typeof query;
+      query = applyRegistrationFilters(query as never, filters) as typeof query;
+      return query;
+    }
 
-    if (mode !== 'index') {
-      query = query.range(from, to);
-    } else {
-      query = query.range(0, pageSize - 1);
+    if (mode === 'index') {
+      const [{ rows, total }, metrics] = await Promise.all([
+        fetchAllPaged<RegistrationRow>(() => buildListQuery() as never),
+        registrationStatusMetrics(supabase, { search: '', sector, subsector }),
+      ]);
+
+      return NextResponse.json({
+        registrations: rows.map((row) => toSummary(row)),
+        metrics,
+        page: 1,
+        pageSize: rows.length,
+        total,
+        mode: 'index',
+        filters: { sector, subsector, status, search: '' },
+      });
     }
 
     const [{ data, error, count }, metrics] = await Promise.all([
-      query,
-      registrationStatusMetrics(supabase, { search: mode === 'index' ? '' : search, sector, subsector }),
+      buildListQuery().range(from, to),
+      registrationStatusMetrics(supabase, { search, sector, subsector }),
     ]);
 
     if (error) {
@@ -130,12 +143,12 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({
-      registrations: (data ?? []).map((row) => toSummary(row as RegistrationRow)),
+      registrations: ((data ?? []) as RegistrationRow[]).map((row) => toSummary(row)),
       metrics,
       page,
       pageSize,
       total: count ?? 0,
-      mode: mode === 'index' ? 'index' : 'page',
+      mode: 'page',
       filters: { sector, subsector, status, search },
     });
   } catch (error) {

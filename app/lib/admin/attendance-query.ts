@@ -10,7 +10,11 @@ import {
   type AttendanceExportColumnId,
   type AttendancePersonColumnId,
 } from '@/app/lib/admin/attendance-columns';
-import { sectorFilterValues, subsectorStorageColumn } from '@/app/lib/admin/registration-filters';
+import {
+  fetchAllPaged,
+  sectorFilterValues,
+  subsectorStorageColumn,
+} from '@/app/lib/admin/registration-filters';
 
 export type AttendancePeriodFilter = 'morning' | 'afternoon';
 
@@ -318,32 +322,32 @@ export async function loadApprovedVolunteers(
   supabase: SupabaseClient,
   filters: Pick<AttendanceReportFilters, 'sector' | 'healthSubsector' | 'search'>,
 ): Promise<ApprovedVolunteerSeed[]> {
-  let query = supabase
-    .from('registrations')
-    .select(
-      'id, registration_id, first_name, middle_name, last_name, full_name_amharic, sex, age, phone, secondary_phone, email, fan_number, sector, health_subsectors, role_subsectors, profession, residence_region, bank_name, bank_account_name, bank_account_number, cohort',
-    )
-    .eq('review_status', 'approved')
-    .order('first_name', { ascending: true })
-    .order('last_name', { ascending: true })
-    .limit(5000);
-
   const sector = normalizeSector(filters.sector) || filters.sector || '';
-  // Older rows may still store "u-report"; match both canonical and raw until migrated.
-  if (sector) {
-    const variants = sectorFilterValues(sector);
-    if (variants.length === 1) query = query.eq('sector', variants[0]);
-    else query = query.in('sector', variants);
-  }
-  if (filters.healthSubsector) {
-    query = query.contains(subsectorStorageColumn(filters.healthSubsector), [filters.healthSubsector]);
-  }
+  const { rows: data } = await fetchAllPaged<ApprovedVolunteerSeed>(() => {
+    let query = supabase
+      .from('registrations')
+      .select(
+        'id, registration_id, first_name, middle_name, last_name, full_name_amharic, sex, age, phone, secondary_phone, email, fan_number, sector, health_subsectors, role_subsectors, profession, residence_region, bank_name, bank_account_name, bank_account_number, cohort',
+        { count: 'exact' },
+      )
+      .eq('review_status', 'approved')
+      .order('first_name', { ascending: true })
+      .order('last_name', { ascending: true });
 
-  const { data, error } = await query;
-  if (error) throw error;
+    // Older rows may still store "u-report"; match both canonical and raw until migrated.
+    if (sector) {
+      const variants = sectorFilterValues(sector);
+      if (variants.length === 1) query = query.eq('sector', variants[0]);
+      else query = query.in('sector', variants);
+    }
+    if (filters.healthSubsector) {
+      query = query.contains(subsectorStorageColumn(filters.healthSubsector), [filters.healthSubsector]);
+    }
+    return query as never;
+  });
 
   const search = (filters.search || '').trim().toLowerCase();
-  let rows = (data ?? []) as ApprovedVolunteerSeed[];
+  let rows = data;
   // Canonicalize sector labels so report grouping / client filters stay consistent.
   rows = rows.map((person) => ({
     ...person,

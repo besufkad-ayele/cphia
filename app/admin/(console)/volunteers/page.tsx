@@ -5,9 +5,11 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Copy, Download, Plus, Search } from 'lucide-react';
 import {
+  ROLE_SUBSECTORS,
   SECTORS,
   isKnownSubsector,
   sectorHasSubsectors,
+  sectorsMatch,
   subsectorFieldForSector,
   subsectorLabelForSector,
   subsectorOptionsForSector,
@@ -58,6 +60,39 @@ function rowSubsectors(row: RegistrationSummary) {
   if (field === 'health_subsectors') return row.healthSubsectors ?? [];
   if (field === 'role_subsectors') return row.roleSubsectors ?? [];
   return [];
+}
+
+function metricsFromRows(rows: RegistrationSummary[]): RegistrationMetrics {
+  return rows.reduce(
+    (acc, row) => {
+      acc.total += 1;
+      acc[row.status] += 1;
+      return acc;
+    },
+    { total: 0, pending: 0, approved: 0, review: 0, flagged: 0 } satisfies RegistrationMetrics,
+  );
+}
+
+/** Tourism / Transport / MoFA / Culture are both top-level sectors and youth-org sub-sectors. */
+function rowMatchesSectorFilter(row: RegistrationSummary, sector: string) {
+  if (!sector) return true;
+  if (sectorsMatch(row.sector, sector)) return true;
+  if ((ROLE_SUBSECTORS as readonly string[]).includes(sector)) {
+    return (row.roleSubsectors ?? []).some((item) => sectorsMatch(item, sector));
+  }
+  return false;
+}
+
+function rowMatchesSubsectorFilter(row: RegistrationSummary, sector: string, subsector: string) {
+  if (!subsector) return true;
+  const field = subsectorFieldForSector(sector || row.sector);
+  if (field === 'health_subsectors') return (row.healthSubsectors ?? []).includes(subsector);
+  if (field === 'role_subsectors') return (row.roleSubsectors ?? []).includes(subsector);
+  // Fallback: check both arrays when sector filter is empty.
+  return (
+    (row.healthSubsectors ?? []).includes(subsector) ||
+    (row.roleSubsectors ?? []).includes(subsector)
+  );
 }
 
 const emptyMetrics: RegistrationMetrics = { total: 0, pending: 0, approved: 0, review: 0, flagged: 0 };
@@ -116,9 +151,7 @@ function ListReviewNote({ status, note }: { status: AdminStatus; note: string })
 }
 
 type IndexCache = {
-  key: string;
   items: RegistrationSummary[];
-  metrics: RegistrationMetrics;
   total: number;
 };
 
@@ -190,11 +223,6 @@ function VolunteersTable() {
       .catch(() => null);
   }, []);
 
-  const filterKey = useMemo(
-    () => JSON.stringify({ status, sector, subsector }),
-    [status, sector, subsector],
-  );
-
   const listQuery = useMemo(
     () => buildListQuery({ status, sector, subsector, search, page }),
     [status, sector, subsector, search, page],
@@ -214,31 +242,30 @@ function VolunteersTable() {
   }, [listHref, listQuery, router]);
 
   const loadIndex = useCallback(async () => {
-    if (cacheRef.current?.key === filterKey) {
+    // Always load the full cohort. Status / sector / search filter client-side so
+    // people are not missing when the active chip would have excluded them from the API slice.
+    if (cacheRef.current) {
       setIndex(cacheRef.current.items);
-      setMetrics(cacheRef.current.metrics);
       setLoading(false);
       return;
     }
     setLoading(true);
-    const params = new URLSearchParams({ mode: 'index', pageSize: '3000' });
-    if (status !== 'all') params.set('status', status);
-    if (sector) params.set('sector', sector);
-    if (subsector) params.set('subsector', subsector);
+    const params = new URLSearchParams({ mode: 'index', pageSize: '5000' });
     const response = await fetch(`/api/admin/registrations?${params}`);
     const payload = await response.json();
     const items = (payload.registrations ?? []) as RegistrationSummary[];
-    const nextMetrics = payload.metrics ?? emptyMetrics;
+    const total = Number(payload.total ?? items.length);
+    if (total > 0 && items.length < total) {
+      console.error('volunteer_index_incomplete', { loaded: items.length, total });
+      toast.error(`Only loaded ${items.length} of ${total} volunteers. Refresh to retry.`);
+    }
     cacheRef.current = {
-      key: filterKey,
       items,
-      metrics: nextMetrics,
-      total: payload.total ?? items.length,
+      total,
     };
     setIndex(items);
-    setMetrics(nextMetrics);
     setLoading(false);
-  }, [filterKey, status, sector, subsector]);
+  }, []);
 
   useEffect(() => {
     void loadIndex();
@@ -253,11 +280,24 @@ function VolunteersTable() {
     setPage(1);
   }, [search, status, sector, subsector]);
 
+  const scopedForMetrics = useMemo(
+    () =>
+      index.filter(
+        (row) => rowMatchesSectorFilter(row, sector) && rowMatchesSubsectorFilter(row, sector, subsector),
+      ),
+    [index, sector, subsector],
+  );
+
+  useEffect(() => {
+    setMetrics(metricsFromRows(scopedForMetrics));
+  }, [scopedForMetrics]);
+
   const filtered = useMemo(() => {
     const q = search.trim();
-    if (!q) return index;
-    return index.filter((row) => matchesVolunteerSearch(row, q));
-  }, [index, search]);
+    // Search always scans the full cohort so status/sector chips cannot hide people.
+    if (q) return index.filter((row) => matchesVolunteerSearch(row, q));
+    return scopedForMetrics.filter((row) => status === 'all' || row.status === status);
+  }, [index, scopedForMetrics, status, search]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount);
@@ -321,21 +361,39 @@ function VolunteersTable() {
     }
     toast.success(action ? `Status set to ${action}.` : 'Reason saved.');
     setStatusExpandId(null);
-    cacheRef.current = null;
-    void loadIndex();
+    if (action) {
+      setIndex((current) =>
+        current.map((item) => (item.id === id ? { ...item, status: action } : item)),
+      );
+      if (cacheRef.current) {
+        cacheRef.current = {
+          ...cacheRef.current,
+          items: cacheRef.current.items.map((item) =>
+            item.id === id ? { ...item, status: action } : item,
+          ),
+        };
+      }
+    }
   }
 
   async function removeVolunteer() {
     if (!deleteId) return;
     const response = await fetch(`/api/admin/registrations/${deleteId}`, { method: 'DELETE' });
+    const removedId = deleteId;
     setDeleteId(null);
     if (!response.ok) {
       toast.error('Could not delete volunteer.');
       return;
     }
     toast.success('Volunteer deleted.');
-    cacheRef.current = null;
-    void loadIndex();
+    setIndex((current) => current.filter((item) => item.id !== removedId));
+    if (cacheRef.current) {
+      cacheRef.current = {
+        ...cacheRef.current,
+        items: cacheRef.current.items.filter((item) => item.id !== removedId),
+        total: Math.max(0, cacheRef.current.total - 1),
+      };
+    }
   }
 
   function exportFile(format: 'csv' | 'xlsx') {
@@ -428,7 +486,6 @@ function VolunteersTable() {
                     else if (subsector && !subsectorOptionsForSector(next).includes(subsector)) {
                       setSubsector('');
                     }
-                    cacheRef.current = null;
                   }}
                 >
                   <option value="">All sectors</option>
@@ -445,7 +502,6 @@ function VolunteersTable() {
                     value={subsector}
                     onChange={(event) => {
                       setSubsector(event.target.value);
-                      cacheRef.current = null;
                     }}
                   >
                     <option value="">All</option>
@@ -464,7 +520,6 @@ function VolunteersTable() {
                   className="h-11 shrink-0"
                   onClick={() => {
                     setStatus(filter.id);
-                    cacheRef.current = null;
                   }}
                 >
                   {filter.label}
@@ -720,12 +775,19 @@ function VolunteersTable() {
             </Table>
           </div>
           {!loading && rows.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">No volunteers match this search.</p>
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              {search.trim()
+                ? 'No volunteers match this search.'
+                : 'No volunteers match these filters.'}
+            </p>
           ) : null}
           <div className="mt-4 flex items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">
               Page {safePage} of {pageCount} · {filtered.length} shown
-              {search.trim() ? ` (filtered from ${index.length})` : ''}
+              {` · ${index.length} loaded`}
+              {cacheRef.current && cacheRef.current.total > index.length
+                ? ` of ${cacheRef.current.total}`
+                : ''}
             </p>
             <div className="flex gap-2">
               <Button variant="outline" className="h-11" disabled={safePage <= 1} onClick={() => setPage((value) => value - 1)}>Previous</Button>

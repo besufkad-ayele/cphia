@@ -6,6 +6,7 @@ import { requireFeature } from '@/app/lib/admin/guard';
 import {
   applyNameSort,
   applyRegistrationFilters,
+  fetchAllPaged,
   parseSector,
   parseSubsector,
   sanitizeSearch,
@@ -80,18 +81,27 @@ export async function GET(request: NextRequest) {
   const wantsAssets = selected.some((col) => assetAllowed.has(col));
 
   const supabase = getSupabaseAdmin();
-  let query = supabase
-    .from('registrations')
-    .select('*, registration_languages(language, proficiency, language_group)');
-  if (id) {
-    query = query.eq('id', id);
-  } else {
-    query = applyNameSort(query as never) as typeof query;
-    query = applyRegistrationFilters(query as never, { status, search, sector, subsector }) as typeof query;
-  }
-
-  const { data, error } = await query;
-  if (error) {
+  let data: Array<Record<string, unknown>> = [];
+  try {
+    if (id) {
+      const single = await supabase
+        .from('registrations')
+        .select('*, registration_languages(language, proficiency, language_group)')
+        .eq('id', id);
+      if (single.error) throw single.error;
+      data = (single.data ?? []) as Array<Record<string, unknown>>;
+    } else {
+      const paged = await fetchAllPaged<Record<string, unknown>>(() => {
+        let query = supabase
+          .from('registrations')
+          .select('*, registration_languages(language, proficiency, language_group)', { count: 'exact' });
+        query = applyNameSort(query as never) as typeof query;
+        query = applyRegistrationFilters(query as never, { status, search, sector, subsector }) as typeof query;
+        return query as never;
+      });
+      data = paged.rows;
+    }
+  } catch (error) {
     console.error('admin_export_error', error);
     return NextResponse.json({ error: 'EXPORT_FAILED' }, { status: 500 });
   }
@@ -108,7 +118,7 @@ export async function GET(request: NextRequest) {
   }
 
   const rows: Array<Record<string, string>> = [];
-  for (const row of (data ?? []) as unknown as Array<Record<string, unknown>>) {
+  for (const row of data) {
     const mapped: Record<string, string> = {};
     for (const col of selected) {
       if (col === 'languages') {

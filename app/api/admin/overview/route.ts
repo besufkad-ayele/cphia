@@ -5,6 +5,7 @@ import { hasFeature } from '@/app/lib/admin/permissions';
 import { buildDemographics, type DemographicsSummary } from '@/app/lib/admin/demographics';
 import {
   applyRegistrationFilters,
+  fetchAllPaged,
   parseSector,
   parseSubsector,
   registrationStatusMetrics,
@@ -71,13 +72,24 @@ export async function GET(request: NextRequest) {
         };
       });
 
-      let breakdownQuery = supabase
-        .from('registrations')
-        .select('sector, health_subsectors, role_subsectors, sex, age, education_level');
-      breakdownQuery = applyRegistrationFilters(breakdownQuery as never, filters) as typeof breakdownQuery;
-      const { data: breakdownRows } = await breakdownQuery;
-      breakdown = sectorBreakdown(breakdownRows ?? []);
-      demographics = buildDemographics(breakdownRows ?? []);
+      const { rows: breakdownRows } = await fetchAllPaged<{
+        sector: string | null;
+        health_subsectors?: string[] | null;
+        role_subsectors?: string[] | null;
+        sex?: string | null;
+        age?: number | null;
+        education_level?: string | null;
+      }>(() => {
+        let breakdownQuery = supabase
+          .from('registrations')
+          .select('sector, health_subsectors, role_subsectors, sex, age, education_level', {
+            count: 'exact',
+          });
+        breakdownQuery = applyRegistrationFilters(breakdownQuery as never, filters) as typeof breakdownQuery;
+        return breakdownQuery as never;
+      });
+      breakdown = sectorBreakdown(breakdownRows);
+      demographics = buildDemographics(breakdownRows);
     }
 
     let migrationRequired = false;
