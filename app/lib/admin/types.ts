@@ -72,6 +72,7 @@ export type RegistrationSummary = {
   fanNumber: string;
   sector: string;
   healthSubsectors?: string[];
+  roleSubsectors?: string[];
   residenceRegion: string;
   status: AdminStatus;
   reviewNote: string;
@@ -142,6 +143,7 @@ export const EXPORT_COLUMNS = [
   { id: 'emergency_relationship', label: 'Emergency relationship' },
   { id: 'sector', label: 'Sector' },
   { id: 'health_subsectors', label: 'Health sub-sector' },
+  { id: 'role_subsectors', label: 'Sub-sector' },
   { id: 'bank_name', label: 'Bank' },
   { id: 'bank_account_name', label: 'Account owner name' },
   { id: 'bank_account_number', label: 'Account number' },
@@ -182,6 +184,7 @@ export const STAFF_PREVIEW_FIELDS = [
   { key: 'fan_number', label: 'FAN number' },
   { key: 'sector', label: 'Sector' },
   { key: 'health_subsectors', label: 'Health sub-sector' },
+  { key: 'role_subsectors', label: 'Sub-sector' },
   { key: 'residence_region', label: 'Region' },
   { key: 'profession', label: 'Profession' },
   { key: 'education_level', label: 'Education' },

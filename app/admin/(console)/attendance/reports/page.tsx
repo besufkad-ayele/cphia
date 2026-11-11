@@ -5,7 +5,14 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
-import { HEALTH_SUBSECTORS, SECTORS, normalizeSector, sectorsMatch } from '@cphia/shared/constants';
+import {
+  SECTORS,
+  normalizeSector,
+  sectorHasSubsectors,
+  sectorsMatch,
+  subsectorLabelForSector,
+  subsectorOptionsForSector,
+} from '@cphia/shared/constants';
 import {
   ATTENDANCE_PERSON_COLUMNS,
   DEFAULT_PERSON_DAY_EXPORT_COLUMNS,
@@ -303,7 +310,7 @@ function buildReportsSearch(state: ReportsUiState) {
   }
   if (state.selectedShiftIds) params.set('shiftIds', state.selectedShiftIds.join(','));
   if (state.filters.sector) params.set('sector', state.filters.sector);
-  if (state.filters.sector === 'Health' && state.filters.subsector) {
+  if (sectorHasSubsectors(state.filters.sector) && state.filters.subsector) {
     params.set('subsector', state.filters.subsector);
   }
   if (state.filters.search.trim()) params.set('q', state.filters.search.trim());
@@ -361,7 +368,7 @@ function sheetStatusTone(status: string) {
 function buildBlockParams(filters: BlockFilters, shiftIds?: string[] | null) {
   const params = new URLSearchParams();
   if (filters.sector) params.set('sector', filters.sector);
-  if (filters.sector === 'Health' && filters.subsector) params.set('subsector', filters.subsector);
+  if (sectorHasSubsectors(filters.sector) && filters.subsector) params.set('subsector', filters.subsector);
   if (filters.search.trim()) params.set('q', filters.search.trim());
   if (!filters.includePending) params.set('verifiedOnly', '1');
   // undefined = default all sheets; array (including empty) = exact checklist
@@ -530,7 +537,7 @@ function AttendanceReportsPageInner() {
     const next = {
       ...draft,
       sector,
-      subsector: sector === 'Health' ? draft.subsector : '',
+      subsector: sectorHasSubsectors(sector) ? draft.subsector : '',
     };
     setDraft(next);
     setFilters(next);
@@ -595,7 +602,7 @@ function AttendanceReportsPageInner() {
       params.set('layout', exportMode === 'period' ? 'person-period' : 'person-day');
     }
     if (filters.sector) params.set('sector', filters.sector);
-    if (filters.sector === 'Health' && filters.subsector) params.set('subsector', filters.subsector);
+    if (sectorHasSubsectors(filters.sector) && filters.subsector) params.set('subsector', filters.subsector);
     if (filters.search.trim()) params.set('q', filters.search.trim());
     if (!filters.includePending) params.set('verifiedOnly', '1');
     window.location.href = `/api/admin/attendance/export?${params.toString()}`;
@@ -911,7 +918,11 @@ function AttendanceReportsPageInner() {
                     setDraft((prev) => ({
                       ...prev,
                       sector,
-                      subsector: sector === 'Health' ? prev.subsector : '',
+                      subsector:
+                        sectorHasSubsectors(sector) &&
+                        subsectorOptionsForSector(sector).includes(prev.subsector)
+                          ? prev.subsector
+                          : '',
                     }));
                   }}
                 >
@@ -921,15 +932,15 @@ function AttendanceReportsPageInner() {
                   ))}
                 </select>
               </Field>
-              {draft.sector === 'Health' ? (
-                <Field label="Health sub-sector">
+              {sectorHasSubsectors(draft.sector) ? (
+                <Field label={subsectorLabelForSector(draft.sector)}>
                   <select
                     className={controlClass}
                     value={draft.subsector}
                     onChange={(event) => setDraft((prev) => ({ ...prev, subsector: event.target.value }))}
                   >
-                    <option value="">All health sub-sectors</option>
-                    {HEALTH_SUBSECTORS.map((item) => (
+                    <option value="">All</option>
+                    {subsectorOptionsForSector(draft.sector).map((item) => (
                       <option key={item} value={item}>{item}</option>
                     ))}
                   </select>
@@ -1012,7 +1023,7 @@ function AttendanceReportsPageInner() {
                             const next = {
                               ...draft,
                               sector,
-                              subsector: sector === 'Health' ? draft.subsector : '',
+                              subsector: sectorHasSubsectors(sector) ? draft.subsector : '',
                             };
                             setDraft(next);
                             setFilters(next);

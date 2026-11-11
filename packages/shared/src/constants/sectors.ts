@@ -58,6 +58,64 @@ export const HEALTH_SUBSECTORS = [
 
 export type HealthSubsector = (typeof HEALTH_SUBSECTORS)[number];
 
+/** Sub-sectors for UNICEF, Serve Global, and Ethiopian Youth Council. */
+export const ROLE_SUBSECTORS = [
+  'Tourism',
+  'Transport',
+  'MoFA',
+  'Culture and Sport',
+] as const;
+
+export type RoleSubsector = (typeof ROLE_SUBSECTORS)[number];
+
+export const ROLE_ASSIGNMENT_SECTORS = [
+  'UNICEF',
+  'Serve Global',
+  'Ethiopian Youth Council',
+] as const;
+
+export type RoleAssignmentSector = (typeof ROLE_ASSIGNMENT_SECTORS)[number];
+
+export function isRoleAssignmentSector(value: string | null | undefined): value is RoleAssignmentSector {
+  const sector = normalizeSector(value);
+  return !!sector && (ROLE_ASSIGNMENT_SECTORS as readonly string[]).includes(sector);
+}
+
+export function isHealthSector(value: string | null | undefined) {
+  return normalizeSector(value) === 'Health';
+}
+
+/** Sectors that expose a sub-sector multi-select in admin. */
+export function sectorHasSubsectors(value: string | null | undefined) {
+  return isHealthSector(value) || isRoleAssignmentSector(value);
+}
+
+export function subsectorOptionsForSector(value: string | null | undefined): readonly string[] {
+  if (isHealthSector(value)) return HEALTH_SUBSECTORS;
+  if (isRoleAssignmentSector(value)) return ROLE_SUBSECTORS;
+  return [];
+}
+
+export function subsectorFieldForSector(value: string | null | undefined): 'health_subsectors' | 'role_subsectors' | null {
+  if (isHealthSector(value)) return 'health_subsectors';
+  if (isRoleAssignmentSector(value)) return 'role_subsectors';
+  return null;
+}
+
+export function subsectorLabelForSector(value: string | null | undefined) {
+  if (isHealthSector(value)) return 'Health sub-sector';
+  if (isRoleAssignmentSector(value)) return 'Sub-sector';
+  return 'Sub-sector';
+}
+
+export function isKnownSubsector(value: string | null | undefined) {
+  if (!value) return false;
+  return (
+    (HEALTH_SUBSECTORS as readonly string[]).includes(value) ||
+    (ROLE_SUBSECTORS as readonly string[]).includes(value)
+  );
+}
+
 export const EDUCATION_LEVELS = [
   'Certificate',
   'Diploma',

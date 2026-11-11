@@ -8,10 +8,12 @@ import {
   ALL_BANKS,
   EDUCATION_LEVELS,
   ETHIOPIA_REGIONS,
-  HEALTH_SUBSECTORS,
   NATIONALITIES,
   SECTORS,
   SECOND_ID_TYPES,
+  subsectorFieldForSector,
+  subsectorLabelForSector,
+  subsectorOptionsForSector,
 } from '@cphia/shared/constants';
 import { toast } from 'sonner';
 import {
@@ -34,6 +36,7 @@ import { ImageLightbox } from '@/components/admin/image-lightbox';
 import { ReviewCommentsCard } from '@/components/admin/review-comments-card';
 import { ReviewStatusActions } from '@/components/admin/review-status-actions';
 import { StatusBadge } from '@/components/admin/status-badge';
+import { SubsectorMultiSelect } from '@/components/admin/subsector-multi-select';
 import { VolunteerAttendanceHistory } from '@/components/admin/volunteer-attendance-history';
 import { VolunteerPreviewDialog } from '@/components/admin/volunteer-preview-dialog';
 import { href } from '@/lib/app-href';
@@ -82,7 +85,7 @@ type Detail = Record<string, unknown> & {
   registration_languages?: Array<{ language: string; proficiency: string; language_group?: string }>;
 };
 
-type FieldKind = 'text' | 'number' | 'select' | 'boolean' | 'textarea' | 'readonly';
+type FieldKind = 'text' | 'number' | 'select' | 'multiselect' | 'boolean' | 'textarea' | 'readonly';
 
 type FieldRow = {
   key: string;
@@ -120,7 +123,8 @@ const FIELD_ROWS: FieldRow[] = [
   { key: 'emergency_phone', label: 'Emergency phone' },
   { key: 'emergency_relationship', label: 'Emergency relationship' },
   { key: 'sector', label: 'Sector', kind: 'select', options: SECTORS },
-  { key: 'health_subsectors', label: 'Health sub-sector', kind: 'select', options: ['', ...HEALTH_SUBSECTORS] },
+  { key: 'health_subsectors', label: 'Health sub-sector', kind: 'multiselect' },
+  { key: 'role_subsectors', label: 'Sub-sector', kind: 'multiselect' },
   { key: 'bank_name', label: 'Bank', kind: 'select', options: ALL_BANKS },
   { key: 'bank_account_name', label: 'Account owner name' },
   { key: 'bank_account_number', label: 'Account number' },
@@ -165,7 +169,7 @@ function draftFromDetail(payload: Detail) {
     if (row.kind === 'readonly') continue;
     if (row.key === 'amharic_first' || row.key === 'amharic_middle' || row.key === 'amharic_last') continue;
     const value = payload[row.key];
-    if (Array.isArray(value)) next[row.key] = value[0] ? String(value[0]) : '';
+    if (Array.isArray(value)) next[row.key] = value.map(String).filter(Boolean).join(', ');
     else if (typeof value === 'boolean') next[row.key] = value ? 'true' : 'false';
     else next[row.key] = value == null ? '' : String(value);
   }
@@ -174,6 +178,13 @@ function draftFromDetail(payload: Detail) {
     .map((item) => `${item.language} (${item.proficiency})`)
     .join(', ');
   return next;
+}
+
+function parseDraftList(value: string | undefined) {
+  return (value ?? '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function ImageEditor({
@@ -451,8 +462,12 @@ function VolunteerDetailPageInner() {
       .join(' ');
     for (const [key, value] of Object.entries(draft)) {
       if (key === 'created_at' || key === 'amharic_first' || key === 'amharic_middle' || key === 'amharic_last') continue;
-      if (key === 'health_subsectors' && draft.sector !== 'Health') {
+      if (key === 'health_subsectors' && subsectorFieldForSector(draft.sector) !== 'health_subsectors') {
         form.append('health_subsectors', '');
+        continue;
+      }
+      if (key === 'role_subsectors' && subsectorFieldForSector(draft.sector) !== 'role_subsectors') {
+        form.append('role_subsectors', '');
         continue;
       }
       form.append(key, value);
@@ -769,7 +784,9 @@ function VolunteerDetailPageInner() {
               <TableBody>
                 {FIELD_ROWS.map((row) => {
                   const currentSector = editing ? draft.sector : String(detail.sector ?? '');
-                  if (row.key === 'health_subsectors' && currentSector !== 'Health') return null;
+                  const activeSubField = subsectorFieldForSector(currentSector);
+                  if (row.key === 'health_subsectors' && activeSubField !== 'health_subsectors') return null;
+                  if (row.key === 'role_subsectors' && activeSubField !== 'role_subsectors') return null;
                   const kind = row.kind ?? 'text';
                   const editingField = editing && kind !== 'readonly';
                   const amharicParts = splitAmharicName(detail.full_name_amharic);
@@ -777,20 +794,45 @@ function VolunteerDetailPageInner() {
                     row.key === 'amharic_first' || row.key === 'amharic_middle' || row.key === 'amharic_last'
                       ? amharicParts[row.key]
                       : detail[row.key];
+                  const multiLabel =
+                    row.key === 'health_subsectors' || row.key === 'role_subsectors'
+                      ? subsectorLabelForSector(currentSector)
+                      : row.label;
                   return (
                     <TableRow key={row.key}>
-                      <TableCell className="font-medium whitespace-normal">{row.label}</TableCell>
+                      <TableCell className="font-medium whitespace-normal">
+                        {row.key === 'health_subsectors' || row.key === 'role_subsectors' ? multiLabel : row.label}
+                      </TableCell>
                       <TableCell className="whitespace-normal">
-                        {editingField && kind === 'select' ? (
+                        {editingField && kind === 'multiselect' ? (
+                          <SubsectorMultiSelect
+                            label={multiLabel}
+                            options={subsectorOptionsForSector(currentSector)}
+                            value={parseDraftList(draft[row.key])}
+                            triggerClassName="h-11 max-w-none text-sm"
+                            onChange={(next) =>
+                              setDraft((current) => ({
+                                ...current,
+                                [row.key]: next.join(', '),
+                              }))
+                            }
+                          />
+                        ) : editingField && kind === 'select' ? (
                           <select
                             className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
                             value={draft[row.key] ?? ''}
                             onChange={(event) => {
                               const next = event.target.value;
+                              const nextField = subsectorFieldForSector(next);
                               setDraft((current) => ({
                                 ...current,
                                 [row.key]: next,
-                                ...(row.key === 'sector' && next !== 'Health' ? { health_subsectors: '' } : {}),
+                                ...(row.key === 'sector'
+                                  ? {
+                                      health_subsectors: nextField === 'health_subsectors' ? current.health_subsectors : '',
+                                      role_subsectors: nextField === 'role_subsectors' ? current.role_subsectors : '',
+                                    }
+                                  : {}),
                               }));
                             }}
                           >

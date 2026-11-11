@@ -3,7 +3,13 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { CalendarCheck, CalendarRange, ClipboardList, Clock3, Users } from 'lucide-react';
-import { HEALTH_SUBSECTORS, SECTORS } from '@cphia/shared/constants';
+import {
+  HEALTH_SUBSECTORS,
+  SECTORS,
+  sectorHasSubsectors,
+  subsectorLabelForSector,
+  subsectorOptionsForSector,
+} from '@cphia/shared/constants';
 import type { DemographicsSummary } from '@/app/lib/admin/demographics';
 import type { RegistrationMetrics, RegistrationSummary } from '@/app/lib/admin/types';
 import { adminFetch } from '@/app/lib/admin/messages';
@@ -192,7 +198,9 @@ export default function AdminDashboardPage() {
     { label: 'Shifts', value: data?.shiftsToday ?? 0, note: 'Roster blocks scheduled today', href: href('/admin/shifts'), icon: Clock3, feature: 'shifts' as const },
   ].filter((card) => showMetrics && (!data || hasFeature(session, card.feature)));
 
-  const showHealthSubs = sector === 'Health';
+  const showSubsectorFilter = sectorHasSubsectors(sector);
+  const subsectorFilterOptions = subsectorOptionsForSector(sector);
+  const subsectorFilterLabel = subsectorLabelForSector(sector);
   const filterNote = [sector || null, subsector || null].filter(Boolean).join(' · ') || 'All sectors';
 
   return (
@@ -200,9 +208,9 @@ export default function AdminDashboardPage() {
       <PageHeader
         kicker="CPHIA-26 COHORT"
         title="Desk at a glance"
-        description="Filter by sector and health sub-sector to see counts, gender, age, education charts, and jump into the matching volunteer list."
+        description="Filter by sector and sub-sector to see counts, gender, age, education charts, and jump into the matching volunteer list."
       >
-        <div className={`grid gap-2 ${showHealthSubs ? 'sm:grid-cols-2' : ''}`}>
+        <div className={`grid gap-2 ${showSubsectorFilter ? 'sm:grid-cols-2' : ''}`}>
           <label className="grid gap-1 text-xs text-zinc-400">
             Sector
             <select
@@ -211,7 +219,10 @@ export default function AdminDashboardPage() {
               onChange={(event) => {
                 const next = event.target.value;
                 setSector(next);
-                if (next !== 'Health') setSubsector('');
+                if (!sectorHasSubsectors(next)) setSubsector('');
+                else if (subsector && !subsectorOptionsForSector(next).includes(subsector)) {
+                  setSubsector('');
+                }
               }}
             >
               <option value="">All sectors</option>
@@ -220,16 +231,16 @@ export default function AdminDashboardPage() {
               ))}
             </select>
           </label>
-          {showHealthSubs ? (
+          {showSubsectorFilter ? (
             <label className="grid gap-1 text-xs text-zinc-400">
-              Health sub-sector
+              {subsectorFilterLabel}
               <select
                 className={controlClass}
                 value={subsector}
                 onChange={(event) => setSubsector(event.target.value)}
               >
-                <option value="">All sub-sectors</option>
-                {HEALTH_SUBSECTORS.map((option) => (
+                <option value="">All</option>
+                {subsectorFilterOptions.map((option) => (
                   <option key={option} value={option}>{option}</option>
                 ))}
               </select>
@@ -303,15 +314,26 @@ export default function AdminDashboardPage() {
         {showSectors ? (
         <Card>
           <CardHeader>
-            <CardTitle>Health sub-sectors</CardTitle>
-            <CardDescription>Useful when staffing facility vs public-health roles.</CardDescription>
+            <CardTitle>{sector ? subsectorLabelForSector(sector) : 'Sub-sectors / roles'}</CardTitle>
+            <CardDescription>
+              {sector === 'Health'
+                ? 'Useful when staffing facility vs public-health roles.'
+                : 'Sub-sectors for UNICEF, Serve Global, Ethiopian Youth Council, and health.'}
+            </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-2">
             {loading ? <Skeleton className="h-16 w-full" /> : null}
             {(data?.breakdown.subsectors ?? []).map((row) => (
               <Link
                 key={row.name}
-                href={volunteersHref('Health', row.name)}
+                href={volunteersHref(
+                  (HEALTH_SUBSECTORS as readonly string[]).includes(row.name)
+                    ? 'Health'
+                    : sector && sectorHasSubsectors(sector)
+                      ? sector
+                      : '',
+                  row.name,
+                )}
                 className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/25 px-3 py-3 text-sm hover:bg-white/5"
               >
                 <span className="text-white">{row.name}</span>
@@ -319,7 +341,7 @@ export default function AdminDashboardPage() {
               </Link>
             ))}
             {!loading && (data?.breakdown.subsectors.length ?? 0) === 0 ? (
-              <p className="text-sm text-zinc-400">No health sub-sector data in this filter.</p>
+              <p className="text-sm text-zinc-400">No sub-sector / role data in this filter.</p>
             ) : null}
           </CardContent>
         </Card>
@@ -369,6 +391,7 @@ export default function AdminDashboardPage() {
                 <p className="truncate text-xs text-zinc-400">
                   {row.registrationId} · {row.sector}
                   {(row.healthSubsectors?.length ?? 0) > 0 ? ` · ${row.healthSubsectors?.join(', ')}` : ''}
+                  {(row.roleSubsectors?.length ?? 0) > 0 ? ` · ${row.roleSubsectors?.join(', ')}` : ''}
                   {row.cohort ? ` · ${row.cohort}` : ''}
                 </p>
               </div>

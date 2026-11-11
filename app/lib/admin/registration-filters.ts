@@ -1,4 +1,9 @@
-import { HEALTH_SUBSECTORS, normalizeSector } from '@cphia/shared/constants';
+import {
+  HEALTH_SUBSECTORS,
+  isKnownSubsector,
+  normalizeSector,
+  subsectorOptionsForSector,
+} from '@cphia/shared/constants';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { deriveAdminStatus } from './status';
 import type { RegistrationMetrics } from './types';
@@ -16,7 +21,12 @@ export function parseSector(value: string | null) {
 
 export function parseSubsector(value: string | null) {
   if (!value) return null;
-  return (HEALTH_SUBSECTORS as readonly string[]).includes(value) ? value : null;
+  return isKnownSubsector(value) ? value : null;
+}
+
+export function subsectorStorageColumn(subsector: string): 'health_subsectors' | 'role_subsectors' {
+  if ((HEALTH_SUBSECTORS as readonly string[]).includes(subsector)) return 'health_subsectors';
+  return 'role_subsectors';
 }
 
 export function sanitizeSearch(value: string) {
@@ -68,7 +78,7 @@ export function applyRegistrationFilters<T extends FilterableQuery>(
       : next.in('sector', variants)) as T;
   }
   if (filters.subsector) {
-    next = next.contains('health_subsectors', [filters.subsector]) as T;
+    next = next.contains(subsectorStorageColumn(filters.subsector), [filters.subsector]) as T;
   }
   if (filters.search) {
     const tokens = filters.search.split(/\s+/).filter(Boolean);
@@ -155,14 +165,18 @@ export async function registrationStatusMetrics(
 }
 
 export function sectorBreakdown(
-  rows: Array<{ sector: string | null; health_subsectors?: string[] | null }>,
+  rows: Array<{
+    sector: string | null;
+    health_subsectors?: string[] | null;
+    role_subsectors?: string[] | null;
+  }>,
 ) {
   const sectors = new Map<string, number>();
   const subsectors = new Map<string, number>();
   for (const row of rows) {
     const sector = row.sector || 'Other';
     sectors.set(sector, (sectors.get(sector) ?? 0) + 1);
-    for (const item of row.health_subsectors ?? []) {
+    for (const item of [...(row.health_subsectors ?? []), ...(row.role_subsectors ?? [])]) {
       subsectors.set(item, (subsectors.get(item) ?? 0) + 1);
     }
   }
@@ -174,4 +188,8 @@ export function sectorBreakdown(
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
   };
+}
+
+export function subsectorFilterOptions(sector: string | null | undefined): readonly string[] {
+  return subsectorOptionsForSector(sector);
 }

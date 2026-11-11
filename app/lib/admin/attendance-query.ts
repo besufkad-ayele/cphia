@@ -10,7 +10,7 @@ import {
   type AttendanceExportColumnId,
   type AttendancePersonColumnId,
 } from '@/app/lib/admin/attendance-columns';
-import { sectorFilterValues } from '@/app/lib/admin/registration-filters';
+import { sectorFilterValues, subsectorStorageColumn } from '@/app/lib/admin/registration-filters';
 
 export type AttendancePeriodFilter = 'morning' | 'afternoon';
 
@@ -69,6 +69,7 @@ type RegistrationJoin = {
   fan_number?: string | null;
   sector?: string | null;
   health_subsectors?: string[] | null;
+  role_subsectors?: string[] | null;
   profession?: string | null;
   residence_region?: string | null;
   bank_name?: string | null;
@@ -181,6 +182,7 @@ export async function loadAttendanceRows(
         fan_number,
         sector,
         health_subsectors,
+        role_subsectors,
         profession,
         residence_region,
         bank_name,
@@ -214,8 +216,9 @@ export async function loadAttendanceRows(
       if (!actual || actual !== wanted) continue;
     }
     if (filters.healthSubsector) {
-      const subs = Array.isArray(person?.health_subsectors) ? person.health_subsectors : [];
-      if (!subs.includes(filters.healthSubsector)) continue;
+      const column = subsectorStorageColumn(filters.healthSubsector);
+      const subs = Array.isArray(person?.[column]) ? person[column] : [];
+      if (!subs?.includes(filters.healthSubsector)) continue;
     }
 
     if (search) {
@@ -290,6 +293,7 @@ export type ApprovedVolunteerSeed = {
   fan_number?: string | null;
   sector?: string | null;
   health_subsectors?: string[] | null;
+  role_subsectors?: string[] | null;
   profession?: string | null;
   residence_region?: string | null;
   bank_name?: string | null;
@@ -317,7 +321,7 @@ export async function loadApprovedVolunteers(
   let query = supabase
     .from('registrations')
     .select(
-      'id, registration_id, first_name, middle_name, last_name, full_name_amharic, sex, age, phone, secondary_phone, email, fan_number, sector, health_subsectors, profession, residence_region, bank_name, bank_account_name, bank_account_number, cohort',
+      'id, registration_id, first_name, middle_name, last_name, full_name_amharic, sex, age, phone, secondary_phone, email, fan_number, sector, health_subsectors, role_subsectors, profession, residence_region, bank_name, bank_account_name, bank_account_number, cohort',
     )
     .eq('review_status', 'approved')
     .order('first_name', { ascending: true })
@@ -332,7 +336,7 @@ export async function loadApprovedVolunteers(
     else query = query.in('sector', variants);
   }
   if (filters.healthSubsector) {
-    query = query.contains('health_subsectors', [filters.healthSubsector]);
+    query = query.contains(subsectorStorageColumn(filters.healthSubsector), [filters.healthSubsector]);
   }
 
   const { data, error } = await query;
@@ -659,8 +663,9 @@ function personCellValue(
   person: ApprovedVolunteerSeed | RegistrationJoin,
   column: AttendancePersonColumnId,
 ): string {
-  if (column === 'health_subsectors') {
-    return Array.isArray(person.health_subsectors) ? person.health_subsectors.join('; ') : '';
+  if (column === 'health_subsectors' || column === 'role_subsectors') {
+    const value = person[column];
+    return Array.isArray(value) ? value.join('; ') : '';
   }
   const value = person[column as keyof typeof person];
   if (Array.isArray(value)) return value.join('; ');
@@ -710,6 +715,7 @@ export function buildPersonAttendanceExport(options: {
       fan_number: person.fan_number,
       sector: person.sector,
       health_subsectors: person.health_subsectors,
+      role_subsectors: person.role_subsectors,
       profession: person.profession,
       residence_region: person.residence_region,
       bank_name: person.bank_name,
@@ -1125,6 +1131,8 @@ export function cellForAttendanceExport(
       return row.cohort_name;
     case 'health_subsectors':
       return Array.isArray(person?.health_subsectors) ? person.health_subsectors.join('; ') : '';
+    case 'role_subsectors':
+      return Array.isArray(person?.role_subsectors) ? person.role_subsectors.join('; ') : '';
     default: {
       const value = person?.[column as keyof RegistrationJoin];
       if (Array.isArray(value)) return value.join('; ');

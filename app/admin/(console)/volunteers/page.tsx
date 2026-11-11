@@ -4,7 +4,14 @@ import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState }
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Copy, Download, Plus, Search } from 'lucide-react';
-import { HEALTH_SUBSECTORS, SECTORS } from '@cphia/shared/constants';
+import {
+  SECTORS,
+  isKnownSubsector,
+  sectorHasSubsectors,
+  subsectorFieldForSector,
+  subsectorLabelForSector,
+  subsectorOptionsForSector,
+} from '@cphia/shared/constants';
 import { toast } from 'sonner';
 import type { AdminStatus } from '@/app/lib/admin/status';
 import { ADMIN_STATUSES } from '@/app/lib/admin/status';
@@ -19,6 +26,7 @@ import { EXPORT_ASSET_COLUMNS, EXPORT_COLUMNS } from '@/app/lib/admin/types';
 import { ExportColumnsDialog } from '@/components/admin/export-columns-dialog';
 import { ReviewStatusActions } from '@/components/admin/review-status-actions';
 import { StatusBadge } from '@/components/admin/status-badge';
+import { SubsectorMultiSelect } from '@/components/admin/subsector-multi-select';
 import { VolunteerPreviewDialog } from '@/components/admin/volunteer-preview-dialog';
 import { href } from '@/lib/app-href';
 import { buttonVariants } from '@/components/ui/button';
@@ -44,6 +52,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+
+function rowSubsectors(row: RegistrationSummary) {
+  const field = subsectorFieldForSector(row.sector);
+  if (field === 'health_subsectors') return row.healthSubsectors ?? [];
+  if (field === 'role_subsectors') return row.roleSubsectors ?? [];
+  return [];
+}
 
 const emptyMetrics: RegistrationMetrics = { total: 0, pending: 0, approved: 0, review: 0, flagged: 0 };
 const PAGE_SIZE = 25;
@@ -140,8 +155,9 @@ function VolunteersTable() {
     (SECTORS as readonly string[]).includes(initialSector) ? initialSector : '',
   );
   const [subsector, setSubsector] = useState(
-    (HEALTH_SUBSECTORS as readonly string[]).includes(initialSubsector) ? initialSubsector : '',
+    isKnownSubsector(initialSubsector) ? initialSubsector : '',
   );
+  const [savingSubsectorId, setSavingSubsectorId] = useState<string | null>(null);
   const [search, setSearch] = useState(initialSearch);
   const [page, setPage] = useState(Number.isFinite(initialPage) && initialPage > 0 ? initialPage : 1);
   const [loading, setLoading] = useState(true);
@@ -246,7 +262,43 @@ function VolunteersTable() {
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount);
   const rows = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
-  const showHealthSubs = sector === 'Health';
+  const showSubsectorFilter = sectorHasSubsectors(sector);
+  const subsectorFilterOptions = subsectorOptionsForSector(sector);
+  const subsectorFilterLabel = subsectorLabelForSector(sector);
+
+  async function saveRowSubsectors(row: RegistrationSummary, next: string[]) {
+    const field = subsectorFieldForSector(row.sector);
+    if (!field) return;
+    setSavingSubsectorId(row.id);
+    const response = await fetch(`/api/admin/registrations/${row.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [field]: next }),
+    });
+    setSavingSubsectorId(null);
+    if (!response.ok) {
+      toast.error('Could not update sub-sector.');
+      return;
+    }
+    setIndex((current) =>
+      current.map((item) => {
+        if (item.id !== row.id) return item;
+        if (field === 'health_subsectors') return { ...item, healthSubsectors: next };
+        return { ...item, roleSubsectors: next };
+      }),
+    );
+    if (cacheRef.current) {
+      cacheRef.current = {
+        ...cacheRef.current,
+        items: cacheRef.current.items.map((item) => {
+          if (item.id !== row.id) return item;
+          if (field === 'health_subsectors') return { ...item, healthSubsectors: next };
+          return { ...item, roleSubsectors: next };
+        }),
+      };
+    }
+    toast.success('Sub-sector updated.');
+  }
 
   useEffect(() => {
     if (page !== safePage) setPage(safePage);
@@ -363,7 +415,7 @@ function VolunteersTable() {
                 className="h-11 pl-9"
               />
             </div>
-            <div className={`grid gap-3 ${showHealthSubs ? 'sm:grid-cols-2' : ''}`}>
+            <div className={`grid gap-3 ${showSubsectorFilter ? 'sm:grid-cols-2' : ''}`}>
               <label className="grid gap-1.5 text-sm">
                 <span className="text-muted-foreground">Sector</span>
                 <select
@@ -372,7 +424,10 @@ function VolunteersTable() {
                   onChange={(event) => {
                     const next = event.target.value;
                     setSector(next);
-                    if (next !== 'Health') setSubsector('');
+                    if (!sectorHasSubsectors(next)) setSubsector('');
+                    else if (subsector && !subsectorOptionsForSector(next).includes(subsector)) {
+                      setSubsector('');
+                    }
                     cacheRef.current = null;
                   }}
                 >
@@ -382,9 +437,9 @@ function VolunteersTable() {
                   ))}
                 </select>
               </label>
-              {showHealthSubs ? (
+              {showSubsectorFilter ? (
                 <label className="grid gap-1.5 text-sm">
-                  <span className="text-muted-foreground">Health sub-sector</span>
+                  <span className="text-muted-foreground">{subsectorFilterLabel}</span>
                   <select
                     className="h-11 rounded-md border border-input bg-background px-3 text-sm"
                     value={subsector}
@@ -393,8 +448,8 @@ function VolunteersTable() {
                       cacheRef.current = null;
                     }}
                   >
-                    <option value="">All sub-sectors</option>
-                    {HEALTH_SUBSECTORS.map((option) => (
+                    <option value="">All</option>
+                    {subsectorFilterOptions.map((option) => (
                       <option key={option} value={option}>{option}</option>
                     ))}
                   </select>
@@ -464,10 +519,21 @@ function VolunteersTable() {
                         <p className="truncate">{row.phone || '—'}{row.email ? ` · ${row.email}` : ''}</p>
                         <CopyFieldButton label="Phone" value={row.phone} className="text-zinc-400 hover:text-white" />
                       </div>
-                      <p className="truncate">
-                        {row.sector}
-                        {(row.healthSubsectors?.length ?? 0) > 0 ? ` · ${row.healthSubsectors?.join(', ')}` : ''}
-                      </p>
+                      <p className="truncate">{row.sector}</p>
+                      {sectorHasSubsectors(row.sector) && canUpdate ? (
+                        <div onClick={(event) => event.stopPropagation()}>
+                          <SubsectorMultiSelect
+                            label={subsectorLabelForSector(row.sector)}
+                            options={subsectorOptionsForSector(row.sector)}
+                            value={rowSubsectors(row)}
+                            disabled={savingSubsectorId === row.id}
+                            triggerClassName="max-w-none"
+                            onChange={(next) => void saveRowSubsectors(row, next)}
+                          />
+                        </div>
+                      ) : rowSubsectors(row).length > 0 ? (
+                        <p className="truncate text-xs">{rowSubsectors(row).join(', ')}</p>
+                      ) : null}
                       <p className="truncate">FAN {row.fanNumber || '—'}{row.cohort ? ` · ${row.cohort}` : ''}</p>
                     </div>
                     <div className="flex flex-wrap gap-1" onClick={(event) => event.stopPropagation()}>
@@ -585,10 +651,20 @@ function VolunteersTable() {
                           <p className="text-xs text-muted-foreground">{row.email}</p>
                         </TableCell>
                         <TableCell className="font-mono text-xs">{row.fanNumber || '—'}</TableCell>
-                        <TableCell>
+                        <TableCell onClick={(event) => event.stopPropagation()}>
                           <p>{row.sector}</p>
-                          {(row.healthSubsectors?.length ?? 0) > 0 ? (
-                            <p className="text-xs text-muted-foreground">{row.healthSubsectors?.join(', ')}</p>
+                          {sectorHasSubsectors(row.sector) && canUpdate ? (
+                            <div className="mt-1.5">
+                              <SubsectorMultiSelect
+                                label={subsectorLabelForSector(row.sector)}
+                                options={subsectorOptionsForSector(row.sector)}
+                                value={rowSubsectors(row)}
+                                disabled={savingSubsectorId === row.id}
+                                onChange={(next) => void saveRowSubsectors(row, next)}
+                              />
+                            </div>
+                          ) : rowSubsectors(row).length > 0 ? (
+                            <p className="mt-1 text-xs text-muted-foreground">{rowSubsectors(row).join(', ')}</p>
                           ) : null}
                         </TableCell>
                         <TableCell>

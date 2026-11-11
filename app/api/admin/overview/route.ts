@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
     if (hasFeature(session, 'volunteers')) {
       let recentQuery = supabase
         .from('registrations')
-        .select('id, registration_id, first_name, middle_name, last_name, email, sector, health_subsectors, residence_region, email_status, device_flag, review_status, review_note, created_at, ui_language, phone, secondary_phone, fan_number, bank_name, cohort')
+        .select('id, registration_id, first_name, middle_name, last_name, email, sector, health_subsectors, role_subsectors, residence_region, email_status, device_flag, review_status, review_note, created_at, ui_language, phone, secondary_phone, fan_number, bank_name, cohort')
         .order('created_at', { ascending: false })
         .limit(6);
       recentQuery = applyRegistrationFilters(recentQuery as never, filters) as typeof recentQuery;
@@ -59,6 +59,7 @@ export async function GET(request: NextRequest) {
           fanNumber: row.fan_number ?? '',
           sector: row.sector,
           healthSubsectors: row.health_subsectors ?? [],
+          roleSubsectors: row.role_subsectors ?? [],
           residenceRegion: row.residence_region,
           status: deriveAdminStatus(row.review_status, row.email_status, row.device_flag),
           reviewNote: row.review_note ?? '',
@@ -72,7 +73,7 @@ export async function GET(request: NextRequest) {
 
       let breakdownQuery = supabase
         .from('registrations')
-        .select('sector, health_subsectors, sex, age, education_level');
+        .select('sector, health_subsectors, role_subsectors, sex, age, education_level');
       breakdownQuery = applyRegistrationFilters(breakdownQuery as never, filters) as typeof breakdownQuery;
       const { data: breakdownRows } = await breakdownQuery;
       breakdown = sectorBreakdown(breakdownRows ?? []);

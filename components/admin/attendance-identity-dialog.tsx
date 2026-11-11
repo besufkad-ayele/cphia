@@ -40,6 +40,7 @@ type IdentityDetail = {
   email?: string;
   sector?: string;
   health_subsectors?: string[] | null;
+  role_subsectors?: string[] | null;
   residence_region?: string;
   residence_detail?: string;
   profession?: string;
@@ -177,6 +178,9 @@ function IdentityBody({
         ) : null}
         {(detail.health_subsectors?.length ?? 0) > 0 ? (
           <p className="mt-0.5 text-zinc-400">{detail.health_subsectors?.join(', ')}</p>
+        ) : null}
+        {(detail.role_subsectors?.length ?? 0) > 0 ? (
+          <p className="mt-0.5 text-zinc-400">{detail.role_subsectors?.join(', ')}</p>
         ) : null}
       </div>
 

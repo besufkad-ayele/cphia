@@ -37,6 +37,7 @@ const UPDATABLE = [
   'emergency_relationship',
   'sector',
   'health_subsectors',
+  'role_subsectors',
   'bank_name',
   'bank_account_name',
   'bank_account_number',
@@ -242,7 +243,7 @@ export async function PATCH(
       updates[key] = parsed;
       continue;
     }
-    if (key === 'health_subsectors') {
+    if (key === 'health_subsectors' || key === 'role_subsectors') {
       if (Array.isArray(value)) {
         updates[key] = value.map(String).filter(Boolean);
       } else if (typeof value === 'string') {

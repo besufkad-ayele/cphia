@@ -33,6 +33,7 @@ export const ATTENDANCE_PERSON_COLUMNS = [
   { id: 'fan_number', label: 'FAN number' },
   { id: 'sector', label: 'Assigned sector' },
   { id: 'health_subsectors', label: 'Health sub-sector(s)' },
+  { id: 'role_subsectors', label: 'Sub-sector(s)' },
   { id: 'profession', label: 'Profession' },
   { id: 'residence_region', label: 'Residence region' },
   { id: 'bank_name', label: 'Bank name' },
