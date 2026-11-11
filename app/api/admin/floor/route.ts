@@ -8,9 +8,44 @@ import { getSupabaseAdmin } from '@/app/lib/supabase/server';
 
 export const runtime = 'nodejs';
 
+type AttendanceStatus = 'present' | 'late' | 'absent' | 'excused';
+type AttendanceMark = { status?: string | null; registration_id?: string | null };
+
+const STATUS_RANK: Record<AttendanceStatus, number> = {
+  present: 4,
+  late: 3,
+  excused: 2,
+  absent: 1,
+};
+
 function one<T>(value: T | T[] | null | undefined): T | null {
   if (Array.isArray(value)) return value[0] ?? null;
   return value ?? null;
+}
+
+function asStatus(value: string | null | undefined): AttendanceStatus | null {
+  if (value === 'present' || value === 'late' || value === 'absent' || value === 'excused') return value;
+  return null;
+}
+
+/** Best status across a person's marks for the day (present beats late beats excused beats absent). */
+function rollupUniquePeople(marks: AttendanceMark[]) {
+  const byPerson = new Map<string, AttendanceStatus>();
+  for (const mark of marks) {
+    const personId = mark.registration_id;
+    const status = asStatus(mark.status);
+    if (!personId || !status) continue;
+    const current = byPerson.get(personId);
+    if (!current || STATUS_RANK[status] > STATUS_RANK[current]) {
+      byPerson.set(personId, status);
+    }
+  }
+
+  const totals = { present: 0, late: 0, absent: 0, excused: 0, people: byPerson.size };
+  for (const status of byPerson.values()) {
+    totals[status] += 1;
+  }
+  return totals;
 }
 
 export async function GET(request: NextRequest) {
@@ -33,7 +68,7 @@ export async function GET(request: NextRequest) {
     const scopedTeamIds = await supervisedTeamIds(supabase, session);
     let shiftsQuery = supabase
       .from('ops_shifts')
-      .select('id, name, shift_date, start_time, end_time, location, capacity, kind, team_id, sheet_status, cohort_id, ops_cohorts(name, code), ops_teams(id, name, code), ops_attendance(status)')
+      .select('id, name, shift_date, start_time, end_time, location, capacity, kind, team_id, sheet_status, cohort_id, ops_cohorts(name, code), ops_teams(id, name, code), ops_attendance(status, registration_id)')
       .eq('shift_date', date)
       .order('start_time', { ascending: true });
     if (cohortId) shiftsQuery = shiftsQuery.eq('cohort_id', cohortId);
@@ -41,7 +76,7 @@ export async function GET(request: NextRequest) {
       if (!scopedTeamIds.length) {
         return NextResponse.json({
           date,
-          totals: { present: 0, late: 0, absent: 0, excused: 0, gap: 0, shifts: 0 },
+          totals: { present: 0, late: 0, absent: 0, excused: 0, gap: 0, shifts: 0, people: 0 },
           shifts: [],
           teams: [],
           cohorts: [],
@@ -59,8 +94,12 @@ export async function GET(request: NextRequest) {
     ]);
     if (shiftsResult.error) return dbError(shiftsResult.error);
 
+    const allMarks: AttendanceMark[] = [];
+    const marksByTeam = new Map<string, { teamId: string; teamName: string; marks: AttendanceMark[]; gap: number; shifts: number }>();
+
     const shifts = (shiftsResult.data ?? []).map((shift) => {
-      const marks = Array.isArray(shift.ops_attendance) ? shift.ops_attendance : [];
+      const marks = (Array.isArray(shift.ops_attendance) ? shift.ops_attendance : []) as AttendanceMark[];
+      allMarks.push(...marks);
       const present = marks.filter((mark) => mark.status === 'present').length;
       const late = marks.filter((mark) => mark.status === 'late').length;
       const absent = marks.filter((mark) => mark.status === 'absent').length;
@@ -70,6 +109,19 @@ export async function GET(request: NextRequest) {
       const gap = capacity > 0 ? Math.max(0, capacity - checkedIn) : 0;
       const cohort = one(shift.ops_cohorts);
       const team = one(shift.ops_teams);
+      if (team) {
+        const current = marksByTeam.get(team.id) || {
+          teamId: team.id,
+          teamName: team.name,
+          marks: [] as AttendanceMark[],
+          gap: 0,
+          shifts: 0,
+        };
+        current.marks.push(...marks);
+        current.gap += gap;
+        current.shifts += 1;
+        marksByTeam.set(team.id, current);
+      }
       return {
         id: shift.id,
         name: shift.name,
@@ -91,51 +143,37 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    const byTeam = new Map<
-      string,
-      { teamId: string; teamName: string; present: number; late: number; absent: number; excused: number; gap: number; shifts: number }
-    >();
-    for (const shift of shifts) {
-      if (!shift.team) continue;
-      const key = shift.team.id;
-      const current = byTeam.get(key) || {
-        teamId: shift.team.id,
-        teamName: shift.team.name,
-        present: 0,
-        late: 0,
-        absent: 0,
-        excused: 0,
-        gap: 0,
-        shifts: 0,
-      };
-      current.present += shift.present;
-      current.late += shift.late;
-      current.absent += shift.absent;
-      current.excused += shift.excused;
-      current.gap += shift.gap;
-      current.shifts += 1;
-      byTeam.set(key, current);
-    }
+    const dayPeople = rollupUniquePeople(allMarks);
+    const totals = {
+      present: dayPeople.present,
+      late: dayPeople.late,
+      absent: dayPeople.absent,
+      excused: dayPeople.excused,
+      people: dayPeople.people,
+      gap: shifts.reduce((sum, shift) => sum + shift.gap, 0),
+      shifts: shifts.length,
+    };
 
-    const totals = shifts.reduce(
-      (acc, shift) => {
-        acc.present += shift.present;
-        acc.late += shift.late;
-        acc.absent += shift.absent;
-        acc.excused += shift.excused;
-        acc.gap += shift.gap;
-        acc.shifts += 1;
-        return acc;
-      },
-      { present: 0, late: 0, absent: 0, excused: 0, gap: 0, shifts: 0 },
-    );
+    const byTeam = [...marksByTeam.values()].map((team) => {
+      const people = rollupUniquePeople(team.marks);
+      return {
+        teamId: team.teamId,
+        teamName: team.teamName,
+        present: people.present,
+        late: people.late,
+        absent: people.absent,
+        excused: people.excused,
+        gap: team.gap,
+        shifts: team.shifts,
+      };
+    });
 
     return NextResponse.json({
       date,
       totals,
       shifts,
       teams: showTeamRollups
-        ? [...byTeam.values()].sort((a, b) => a.teamName.localeCompare(b.teamName))
+        ? byTeam.sort((a, b) => a.teamName.localeCompare(b.teamName))
         : [],
       cohorts: cohorts.data ?? [],
       allTeams: teams.data ?? [],

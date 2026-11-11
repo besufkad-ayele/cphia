@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { Download, Upload } from 'lucide-react';
+import { Download, ExternalLink, Upload } from 'lucide-react';
 import {
   ALL_BANKS,
   EDUCATION_LEVELS,
@@ -315,25 +315,39 @@ function ImageEditor({
   );
 }
 
-function safeVolunteersReturn(raw: string | null) {
+function safeAdminReturn(raw: string | null) {
   if (!raw) return '/admin/volunteers';
   try {
     const decoded = decodeURIComponent(raw);
-    if (decoded.startsWith('/admin/volunteers') && !decoded.startsWith('//')) return decoded;
+    if (decoded.startsWith('//')) return '/admin/volunteers';
+    if (
+      decoded.startsWith('/admin/volunteers')
+      || decoded.startsWith('/admin/attendance')
+    ) {
+      return decoded;
+    }
   } catch {
     /* ignore */
   }
   return '/admin/volunteers';
 }
 
+function backLabelForReturn(path: string) {
+  if (path.startsWith('/admin/attendance/reports')) return 'Back to reports';
+  if (path.startsWith('/admin/attendance')) return 'Back to attendance';
+  return 'Back to volunteers';
+}
+
 function VolunteerDetailPageInner() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const volunteersHref = useMemo(
-    () => href(safeVolunteersReturn(searchParams.get('return'))),
+  const returnPath = useMemo(
+    () => safeAdminReturn(searchParams.get('return')),
     [searchParams],
   );
+  const volunteersHref = useMemo(() => href(returnPath), [returnPath]);
+  const backLabel = useMemo(() => backLabelForReturn(returnPath), [returnPath]);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -518,7 +532,7 @@ function VolunteerDetailPageInner() {
     return (
       <div className="grid gap-4">
         <Link href={volunteersHref} className={cn(buttonVariants({ variant: 'ghost' }), 'h-9 w-fit px-0')}>
-          Back to volunteers
+          {backLabel}
         </Link>
         <p className="text-sm text-muted-foreground">
           This role is read-only for volunteers. Use the popup for the key details.
@@ -546,7 +560,7 @@ function VolunteerDetailPageInner() {
         description="The registration may have been deleted, or the link may be incomplete. Return to the volunteer list to search again."
       >
         <Link href={volunteersHref} className={cn(buttonVariants(), 'h-11')}>
-          Back to volunteers
+          {backLabel}
         </Link>
       </MissingVolunteer>
     );
@@ -565,7 +579,7 @@ function VolunteerDetailPageInner() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Link href={volunteersHref} className={cn(buttonVariants({ variant: 'ghost' }), 'mb-2 h-9 px-0')}>
-            Back to volunteers
+            {backLabel}
           </Link>
           <h1 className="text-2xl font-semibold tracking-tight">
             {String(detail.first_name ?? '')} {String(detail.last_name ?? '')}
@@ -574,6 +588,20 @@ function VolunteerDetailPageInner() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge status={detail.status} />
+          <Link
+            href={href(
+              searchParams.get('return')
+                ? `/admin/volunteers/${detail.id}?return=${encodeURIComponent(returnPath)}`
+                : `/admin/volunteers/${detail.id}`,
+            )}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={cn(buttonVariants({ variant: 'outline' }), 'h-11 gap-2')}
+            title="Open this profile in a new page"
+          >
+            <ExternalLink className="size-4" />
+            New page
+          </Link>
           {canManage ? (
             <Button
               variant="outline"
@@ -636,7 +664,7 @@ function VolunteerDetailPageInner() {
         </Card>
       ) : null}
 
-      <VolunteerAttendanceHistory volunteerId={detail.id} />
+      <VolunteerAttendanceHistory volunteerId={detail.id} canEdit={Boolean(isSuperAdmin)} />
 
       {cohort ? (
         <Card>

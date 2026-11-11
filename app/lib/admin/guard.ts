@@ -42,7 +42,12 @@ export function dbError(error: { code?: string; message?: string } | null | unde
       { status: 503 },
     );
   }
-  console.error('admin_ops_error', error);
+  console.error('admin_ops_error', {
+    message: error?.message,
+    code: error?.code,
+    details: (error as { details?: string } | null | undefined)?.details,
+    hint: (error as { hint?: string } | null | undefined)?.hint,
+  });
   return NextResponse.json({ error: 'REQUEST_FAILED' }, { status: 500 });
 }
 

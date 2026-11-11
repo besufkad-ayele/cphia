@@ -1,7 +1,21 @@
-import type { AttendanceReportFilters } from '@/app/lib/admin/attendance-query';
-import { parseAttendancePeriods } from '@/app/lib/admin/attendance-query';
+import type {
+  AttendancePeriodFilter,
+  AttendanceReportFilters,
+} from '@/app/lib/admin/attendance-query';
 import { isAttendanceStatus, sanitizeSearch } from '@/app/lib/admin/ops';
 import { parseSector, parseSubsector } from '@/app/lib/admin/registration-filters';
+
+/** Parse `period=morning,afternoon` query values. Kept here to avoid circular imports with attendance-query. */
+export function parseAttendancePeriods(
+  raw: string | null | undefined,
+): AttendancePeriodFilter[] | undefined {
+  if (!raw?.trim()) return undefined;
+  const values = raw
+    .split(',')
+    .map((item) => item.trim().toLowerCase())
+    .filter((item): item is AttendancePeriodFilter => item === 'morning' || item === 'afternoon');
+  return values.length ? [...new Set(values)] : undefined;
+}
 
 /** Shared query-string → attendance report filters (reports UI + export). */
 export function attendanceFiltersFromSearchParams(

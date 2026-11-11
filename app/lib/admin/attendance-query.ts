@@ -1,9 +1,16 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { normalizeSector } from '@cphia/shared/constants';
 import {
+  ATTENDANCE_PERSON_COLUMNS,
+  attendanceDayColumnHeader,
+  attendancePeriodColumnHeader,
   periodLabel,
+  sheetStatusLabel,
   shiftPeriod,
   type AttendanceExportColumnId,
+  type AttendancePersonColumnId,
 } from '@/app/lib/admin/attendance-columns';
+import { sectorFilterValues } from '@/app/lib/admin/registration-filters';
 
 export type AttendancePeriodFilter = 'morning' | 'afternoon';
 
@@ -198,10 +205,13 @@ export async function loadAttendanceRows(
     const shift = shiftMap.get(row.shift_id);
     if (!shift) continue;
     const person = one(row.registrations as RegistrationJoin | RegistrationJoin[] | null);
-    if (person?.review_status && person.review_status !== 'approved') continue;
+    // Official attendance counts approved volunteers only.
+    if (!person || person.review_status !== 'approved') continue;
 
     if (filters.sector) {
-      if (!person?.sector || person.sector !== filters.sector) continue;
+      const wanted = normalizeSector(filters.sector) || filters.sector;
+      const actual = normalizeSector(person?.sector) || person?.sector || '';
+      if (!actual || actual !== wanted) continue;
     }
     if (filters.healthSubsector) {
       const subs = Array.isArray(person?.health_subsectors) ? person.health_subsectors : [];
@@ -265,6 +275,97 @@ export async function loadVerifiedAttendanceRows(
   return loadAttendanceRows(supabase, { ...filters, verifiedOnly: true });
 }
 
+export type ApprovedVolunteerSeed = {
+  id: string;
+  registration_id: string;
+  first_name?: string;
+  middle_name?: string | null;
+  last_name?: string;
+  full_name_amharic?: string | null;
+  sex?: string | null;
+  age?: number | string | null;
+  phone?: string | null;
+  secondary_phone?: string | null;
+  email?: string | null;
+  fan_number?: string | null;
+  sector?: string | null;
+  health_subsectors?: string[] | null;
+  profession?: string | null;
+  residence_region?: string | null;
+  bank_name?: string | null;
+  bank_account_name?: string | null;
+  bank_account_number?: string | null;
+  cohort?: string | null;
+};
+
+function personDisplayName(person: {
+  first_name?: string | null;
+  middle_name?: string | null;
+  last_name?: string | null;
+}) {
+  return [person.first_name, person.middle_name, person.last_name].filter(Boolean).join(' ');
+}
+
+/**
+ * Approved volunteer universe for training reports / came-vs-never denominators.
+ * Optional sector, health sub-sector, and person search match attendance filters.
+ */
+export async function loadApprovedVolunteers(
+  supabase: SupabaseClient,
+  filters: Pick<AttendanceReportFilters, 'sector' | 'healthSubsector' | 'search'>,
+): Promise<ApprovedVolunteerSeed[]> {
+  let query = supabase
+    .from('registrations')
+    .select(
+      'id, registration_id, first_name, middle_name, last_name, full_name_amharic, sex, age, phone, secondary_phone, email, fan_number, sector, health_subsectors, profession, residence_region, bank_name, bank_account_name, bank_account_number, cohort',
+    )
+    .eq('review_status', 'approved')
+    .order('first_name', { ascending: true })
+    .order('last_name', { ascending: true })
+    .limit(5000);
+
+  const sector = normalizeSector(filters.sector) || filters.sector || '';
+  // Older rows may still store "u-report"; match both canonical and raw until migrated.
+  if (sector) {
+    const variants = sectorFilterValues(sector);
+    if (variants.length === 1) query = query.eq('sector', variants[0]);
+    else query = query.in('sector', variants);
+  }
+  if (filters.healthSubsector) {
+    query = query.contains('health_subsectors', [filters.healthSubsector]);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  const search = (filters.search || '').trim().toLowerCase();
+  let rows = (data ?? []) as ApprovedVolunteerSeed[];
+  // Canonicalize sector labels so report grouping / client filters stay consistent.
+  rows = rows.map((person) => ({
+    ...person,
+    sector: normalizeSector(person.sector) || person.sector || 'Unassigned',
+  }));
+  if (!search) return rows;
+
+  const tokens = search.split(/\s+/).filter(Boolean);
+  return rows.filter((person) => {
+    const haystack = [
+      person.first_name,
+      person.middle_name,
+      person.last_name,
+      person.registration_id,
+      person.email,
+      person.phone,
+      person.fan_number,
+      person.sector,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    return tokens.every((token) => haystack.includes(token));
+  });
+}
+
 export function attendedCount(status: string) {
   return status === 'present' || status === 'late' ? 1 : 0;
 }
@@ -276,11 +377,75 @@ export function isAttendedStatus(status: string) {
 
 type PersonDayKey = string;
 
+type PersonSummaryAcc = {
+  registrationId: string;
+  publicId: string;
+  name: string;
+  sector: string;
+  daysTotal: number;
+  daysAttended: number;
+  daysAbsent: number;
+  attendedDates: Set<string>;
+  absentDates: Set<string>;
+  shiftsTotal: number;
+  shiftsAttended: number;
+  morningShifts: number;
+  afternoonShifts: number;
+  morningAttended: number;
+  afternoonAttended: number;
+};
+
+function emptyPersonSummary(seed: {
+  registrationId: string;
+  publicId: string;
+  name: string;
+  sector: string;
+}): PersonSummaryAcc {
+  return {
+    registrationId: seed.registrationId,
+    publicId: seed.publicId,
+    name: seed.name,
+    sector: seed.sector,
+    daysTotal: 0,
+    daysAttended: 0,
+    daysAbsent: 0,
+    attendedDates: new Set<string>(),
+    absentDates: new Set<string>(),
+    shiftsTotal: 0,
+    shiftsAttended: 0,
+    morningShifts: 0,
+    afternoonShifts: 0,
+    morningAttended: 0,
+    afternoonAttended: 0,
+  };
+}
+
+function emptySectorSummary(sector: string) {
+  return {
+    sector,
+    people: new Set<string>(),
+    peopleCame: new Set<string>(),
+    peopleNever: new Set<string>(),
+    daysTotal: 0,
+    daysAttended: 0,
+    daysAbsent: 0,
+    shiftsTotal: 0,
+    shiftsAttended: 0,
+  };
+}
+
 /**
  * Training / bulk reporting: collapse morning+afternoon on the same date into one person-day.
  * Came either period → attended that day. Missed both → absent. Came both → still one day.
+ * Also tracks raw shift (sheet) attendance so reports can show days + shifts together.
+ *
+ * When `approvedPeople` is provided, sector People / Came / Never use the approved pool
+ * (including approved volunteers who never appeared on a selected sheet).
  */
-export function summarizeTrainingByDay(rows: AttendanceFlatRow[]) {
+export function summarizeTrainingByDay(
+  rows: AttendanceFlatRow[],
+  options?: { approvedPeople?: ApprovedVolunteerSeed[] },
+) {
   const personDays = new Map<
     PersonDayKey,
     {
@@ -295,16 +460,23 @@ export function summarizeTrainingByDay(rows: AttendanceFlatRow[]) {
     }
   >();
 
+  const byPerson = new Map<string, PersonSummaryAcc>();
+  const bySector = new Map<string, ReturnType<typeof emptySectorSummary>>();
+  const byDay = new Map<
+    string,
+    { date: string; people: number; attended: number; absent: number; shifts: Set<string> }
+  >();
+
   for (const row of rows) {
     const person = row.registration;
     if (!person?.id) continue;
-    const sector = person.sector || 'Unassigned';
+    const sectorName = normalizeSector(person.sector) || person.sector || 'Unassigned';
     const key = `${person.id}|${row.shift_date}`;
     const current = personDays.get(key) || {
       registrationId: person.id,
       publicId: person.registration_id || '',
-      name: [person.first_name, person.middle_name, person.last_name].filter(Boolean).join(' '),
-      sector,
+      name: personDisplayName(person),
+      sector: sectorName,
       date: row.shift_date,
       attended: false,
       morningStatus: null,
@@ -314,38 +486,31 @@ export function summarizeTrainingByDay(rows: AttendanceFlatRow[]) {
     if (row.period === 'morning') current.morningStatus = row.status;
     if (row.period === 'afternoon') current.afternoonStatus = row.status;
     personDays.set(key, current);
-  }
 
-  const dayList = [...personDays.values()];
-
-  const byPerson = new Map<
-    string,
-    {
-      registrationId: string;
-      publicId: string;
-      name: string;
-      sector: string;
-      daysTotal: number;
-      daysAttended: number;
-      daysAbsent: number;
+    const personSummary = byPerson.get(person.id) || emptyPersonSummary({
+      registrationId: person.id,
+      publicId: person.registration_id || '',
+      name: personDisplayName(person),
+      sector: sectorName,
+    });
+    personSummary.shiftsTotal += 1;
+    if (isAttendedStatus(row.status)) personSummary.shiftsAttended += 1;
+    if (row.period === 'morning') {
+      personSummary.morningShifts += 1;
+      if (isAttendedStatus(row.status)) personSummary.morningAttended += 1;
     }
-  >();
-  const bySector = new Map<
-    string,
-    {
-      sector: string;
-      people: Set<string>;
-      daysTotal: number;
-      daysAttended: number;
-      daysAbsent: number;
+    if (row.period === 'afternoon') {
+      personSummary.afternoonShifts += 1;
+      if (isAttendedStatus(row.status)) personSummary.afternoonAttended += 1;
     }
-  >();
-  const byDay = new Map<
-    string,
-    { date: string; people: number; attended: number; absent: number; shifts: Set<string> }
-  >();
+    byPerson.set(person.id, personSummary);
 
-  for (const row of rows) {
+    const sectorSummary = bySector.get(sectorName) || emptySectorSummary(sectorName);
+    sectorSummary.people.add(person.id);
+    sectorSummary.shiftsTotal += 1;
+    if (isAttendedStatus(row.status)) sectorSummary.shiftsAttended += 1;
+    bySector.set(sectorName, sectorSummary);
+
     const day = byDay.get(row.shift_date) || {
       date: row.shift_date,
       people: 0,
@@ -357,33 +522,26 @@ export function summarizeTrainingByDay(rows: AttendanceFlatRow[]) {
     byDay.set(row.shift_date, day);
   }
 
-  for (const entry of dayList) {
-    const person = byPerson.get(entry.registrationId) || {
-      registrationId: entry.registrationId,
-      publicId: entry.publicId,
-      name: entry.name,
-      sector: entry.sector,
-      daysTotal: 0,
-      daysAttended: 0,
-      daysAbsent: 0,
-    };
-    person.daysTotal += 1;
-    if (entry.attended) person.daysAttended += 1;
-    else person.daysAbsent += 1;
-    byPerson.set(entry.registrationId, person);
+  const dayList = [...personDays.values()];
 
-    const sector = bySector.get(entry.sector) || {
-      sector: entry.sector,
-      people: new Set<string>(),
-      daysTotal: 0,
-      daysAttended: 0,
-      daysAbsent: 0,
-    };
-    sector.people.add(entry.registrationId);
-    sector.daysTotal += 1;
-    if (entry.attended) sector.daysAttended += 1;
-    else sector.daysAbsent += 1;
-    bySector.set(entry.sector, sector);
+  for (const entry of dayList) {
+    const person = byPerson.get(entry.registrationId);
+    if (!person) continue;
+    person.daysTotal += 1;
+    if (entry.attended) {
+      person.daysAttended += 1;
+      person.attendedDates.add(entry.date);
+    } else {
+      person.daysAbsent += 1;
+      person.absentDates.add(entry.date);
+    }
+
+    const sector = bySector.get(entry.sector);
+    if (sector) {
+      sector.daysTotal += 1;
+      if (entry.attended) sector.daysAttended += 1;
+      else sector.daysAbsent += 1;
+    }
 
     const day = byDay.get(entry.date);
     if (day) {
@@ -393,38 +551,92 @@ export function summarizeTrainingByDay(rows: AttendanceFlatRow[]) {
     }
   }
 
+  for (const approved of options?.approvedPeople ?? []) {
+    const sectorName = normalizeSector(approved.sector) || approved.sector || 'Unassigned';
+    if (!byPerson.has(approved.id)) {
+      byPerson.set(
+        approved.id,
+        emptyPersonSummary({
+          registrationId: approved.id,
+          publicId: approved.registration_id || '',
+          name: personDisplayName(approved),
+          sector: sectorName,
+        }),
+      );
+    } else {
+      // Prefer canonical sector label when the mark join had an older spelling.
+      const existing = byPerson.get(approved.id)!;
+      existing.sector = sectorName;
+    }
+    const sectorSummary = bySector.get(sectorName) || emptySectorSummary(sectorName);
+    sectorSummary.people.add(approved.id);
+    bySector.set(sectorName, sectorSummary);
+  }
+
+  for (const sector of bySector.values()) {
+    sector.peopleCame.clear();
+    sector.peopleNever.clear();
+  }
+  for (const person of byPerson.values()) {
+    const sector = bySector.get(person.sector);
+    if (!sector) continue;
+    sector.people.add(person.registrationId);
+    if (person.daysAttended > 0) sector.peopleCame.add(person.registrationId);
+    else sector.peopleNever.add(person.registrationId);
+  }
+
+  const peopleCame = [...byPerson.values()].filter((person) => person.daysAttended > 0).length;
+  const peopleNever = byPerson.size - peopleCame;
   const totals = {
     people: byPerson.size,
+    peopleCame,
+    peopleNever,
     daysTotal: dayList.length,
     daysAttended: dayList.filter((entry) => entry.attended).length,
     daysAbsent: dayList.filter((entry) => !entry.attended).length,
+    shiftsTotal: rows.length,
+    shiftsAttended: rows.filter((row) => isAttendedStatus(row.status)).length,
   };
   const participationRate = totals.daysTotal ? totals.daysAttended / totals.daysTotal : 0;
 
   return {
     mode: 'day' as const,
-    rule: 'late_counts_as_present; morning_or_afternoon_counts_as_one_day',
+    rule: 'approved_only; late_counts_as_present; morning_or_afternoon_counts_as_one_day',
     totals: {
       ...totals,
       participationPercent: Math.round(participationRate * 1000) / 10,
+      shiftParticipationPercent: totals.shiftsTotal
+        ? Math.round((totals.shiftsAttended / totals.shiftsTotal) * 1000) / 10
+        : 0,
     },
     byPerson: [...byPerson.values()]
-      .map((person) => ({
+      .map(({ attendedDates, absentDates, ...person }) => ({
         ...person,
+        came: person.daysAttended > 0,
+        attendedDates: [...attendedDates].sort(),
+        absentDates: [...absentDates].sort(),
         participationPercent: person.daysTotal
           ? Math.round((person.daysAttended / person.daysTotal) * 1000) / 10
+          : 0,
+        shiftParticipationPercent: person.shiftsTotal
+          ? Math.round((person.shiftsAttended / person.shiftsTotal) * 1000) / 10
           : 0,
       }))
       .sort((a, b) => a.name.localeCompare(b.name) || a.sector.localeCompare(b.sector)),
     bySector: [...bySector.values()]
-      .map(({ people, ...sector }) => ({
+      .map(({ people, peopleCame: cameSet, peopleNever: neverSet, ...sector }) => ({
         ...sector,
         peopleCount: people.size,
+        peopleCame: cameSet.size,
+        peopleNever: neverSet.size,
         participationPercent: sector.daysTotal
           ? Math.round((sector.daysAttended / sector.daysTotal) * 1000) / 10
           : 0,
+        shiftParticipationPercent: sector.shiftsTotal
+          ? Math.round((sector.shiftsAttended / sector.shiftsTotal) * 1000) / 10
+          : 0,
       }))
-      .sort((a, b) => b.daysAttended - a.daysAttended || a.sector.localeCompare(b.sector)),
+      .sort((a, b) => b.peopleCame - a.peopleCame || a.sector.localeCompare(b.sector)),
     byDay: [...byDay.values()]
       .map(({ shifts, ...day }) => ({
         ...day,
@@ -439,6 +651,209 @@ export function summarizeTrainingByDay(rows: AttendanceFlatRow[]) {
       }))
       .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name)),
   };
+}
+
+export type PersonDayExportMode = 'day' | 'period';
+
+function personCellValue(
+  person: ApprovedVolunteerSeed | RegistrationJoin,
+  column: AttendancePersonColumnId,
+): string {
+  if (column === 'health_subsectors') {
+    return Array.isArray(person.health_subsectors) ? person.health_subsectors.join('; ') : '';
+  }
+  const value = person[column as keyof typeof person];
+  if (Array.isArray(value)) return value.join('; ');
+  if (value == null) return '';
+  return String(value);
+}
+
+/**
+ * One row per approved volunteer; date (or morning/afternoon) columns in the header.
+ * Day mode cell: Came / Missed / Not on sheet
+ * Period mode cell: Present / Late / Absent / Excused / Not on sheet
+ */
+export function buildPersonAttendanceExport(options: {
+  rows: AttendanceFlatRow[];
+  approvedPeople: ApprovedVolunteerSeed[];
+  personColumns: AttendancePersonColumnId[];
+  mode?: PersonDayExportMode;
+}): { headers: string[]; records: string[][] } {
+  const mode = options.mode ?? 'day';
+  const dates = [...new Set(options.rows.map((row) => row.shift_date))].sort();
+  const periodKeys = ['morning', 'afternoon'] as const;
+
+  type DayAcc = {
+    attended: boolean;
+    onSheet: boolean;
+    morning?: string;
+    afternoon?: string;
+  };
+  const byPersonDay = new Map<string, DayAcc>();
+  const peopleFromMarks = new Map<string, ApprovedVolunteerSeed>();
+
+  for (const row of options.rows) {
+    const person = row.registration;
+    if (!person?.id) continue;
+    peopleFromMarks.set(person.id, {
+      id: person.id,
+      registration_id: person.registration_id || '',
+      first_name: person.first_name,
+      middle_name: person.middle_name,
+      last_name: person.last_name,
+      full_name_amharic: person.full_name_amharic,
+      sex: person.sex,
+      age: person.age,
+      phone: person.phone,
+      secondary_phone: person.secondary_phone,
+      email: person.email,
+      fan_number: person.fan_number,
+      sector: person.sector,
+      health_subsectors: person.health_subsectors,
+      profession: person.profession,
+      residence_region: person.residence_region,
+      bank_name: person.bank_name,
+      bank_account_name: person.bank_account_name,
+      bank_account_number: person.bank_account_number,
+      cohort: person.cohort,
+    });
+    const key = `${person.id}|${row.shift_date}`;
+    const current = byPersonDay.get(key) || { attended: false, onSheet: false };
+    current.onSheet = true;
+    if (isAttendedStatus(row.status)) current.attended = true;
+    if (row.period === 'morning') current.morning = row.status;
+    if (row.period === 'afternoon') current.afternoon = row.status;
+    byPersonDay.set(key, current);
+  }
+
+  const peopleMap = new Map<string, ApprovedVolunteerSeed>();
+  for (const person of options.approvedPeople) peopleMap.set(person.id, person);
+  for (const [id, person] of peopleFromMarks) {
+    if (!peopleMap.has(id)) peopleMap.set(id, person);
+  }
+  const people = [...peopleMap.values()].sort((a, b) => {
+    const nameA = personDisplayName(a);
+    const nameB = personDisplayName(b);
+    return nameA.localeCompare(nameB) || (a.sector || '').localeCompare(b.sector || '');
+  });
+
+  const dateHeaders =
+    mode === 'period'
+      ? dates.flatMap((date) =>
+          periodKeys.map((period) => attendancePeriodColumnHeader(date, period)),
+        )
+      : dates.map((date) => attendanceDayColumnHeader(date));
+
+  const summaryHeaders =
+    mode === 'day'
+      ? [
+          'Came at least once (Yes/No)',
+          'Training days attended',
+          'Training days missed (on sheet)',
+          'Shift sheets attended',
+          'Shift sheets on roster',
+        ]
+      : [
+          'Came at least once (Yes/No)',
+          'Morning sheets attended',
+          'Afternoon sheets attended',
+          'Shift sheets attended',
+          'Shift sheets on roster',
+        ];
+
+  const personLabels = new Map(ATTENDANCE_PERSON_COLUMNS.map((column) => [column.id, column.label]));
+  const headers = [
+    ...options.personColumns.map((column) => personLabels.get(column) || column),
+    ...dateHeaders,
+    ...summaryHeaders,
+  ];
+
+  const records = people.map((person) => {
+    const identity = options.personColumns.map((column) => personCellValue(person, column));
+    let daysAttended = 0;
+    let daysMissed = 0;
+    let morningAttended = 0;
+    let afternoonAttended = 0;
+    let shiftsAttended = 0;
+    let shiftsTotal = 0;
+    let came = false;
+
+    const dayCells: string[] = [];
+    for (const date of dates) {
+      const entry = byPersonDay.get(`${person.id}|${date}`);
+      if (mode === 'day') {
+        if (!entry?.onSheet) {
+          dayCells.push('Not on sheet');
+        } else if (entry.attended) {
+          dayCells.push('Came');
+          daysAttended += 1;
+          came = true;
+        } else {
+          dayCells.push('Missed');
+          daysMissed += 1;
+        }
+      } else {
+        for (const period of periodKeys) {
+          const status = period === 'morning' ? entry?.morning : entry?.afternoon;
+          if (!status) {
+            dayCells.push('Not on sheet');
+            continue;
+          }
+          shiftsTotal += 1;
+          const label =
+            status === 'present'
+              ? 'Present'
+              : status === 'late'
+                ? 'Late (counts as present)'
+                : status === 'excused'
+                  ? 'Excused'
+                  : status === 'absent'
+                    ? 'Absent'
+                    : status;
+          dayCells.push(label);
+          if (isAttendedStatus(status)) {
+            shiftsAttended += 1;
+            came = true;
+            if (period === 'morning') morningAttended += 1;
+            else afternoonAttended += 1;
+          }
+        }
+      }
+    }
+
+    if (mode === 'day') {
+      for (const date of dates) {
+        const entry = byPersonDay.get(`${person.id}|${date}`);
+        if (!entry?.onSheet) continue;
+        for (const status of [entry.morning, entry.afternoon]) {
+          if (!status) continue;
+          shiftsTotal += 1;
+          if (isAttendedStatus(status)) shiftsAttended += 1;
+        }
+      }
+    }
+
+    const summary =
+      mode === 'day'
+        ? [
+            came ? 'Yes' : 'No',
+            String(daysAttended),
+            String(daysMissed),
+            String(shiftsAttended),
+            String(shiftsTotal),
+          ]
+        : [
+            came ? 'Yes' : 'No',
+            String(morningAttended),
+            String(afternoonAttended),
+            String(shiftsAttended),
+            String(shiftsTotal),
+          ];
+
+    return [...identity, ...dayCells, ...summary];
+  });
+
+  return { headers, records };
 }
 
 export function summarizeAttendance(rows: AttendanceFlatRow[]) {
@@ -672,15 +1087,6 @@ export function summarizeAttendance(rows: AttendanceFlatRow[]) {
   };
 }
 
-export function parseAttendancePeriods(raw: string | null | undefined): AttendancePeriodFilter[] | undefined {
-  if (!raw?.trim()) return undefined;
-  const values = raw
-    .split(',')
-    .map((item) => item.trim().toLowerCase())
-    .filter((item): item is AttendancePeriodFilter => item === 'morning' || item === 'afternoon');
-  return values.length ? [...new Set(values)] : undefined;
-}
-
 export function cellForAttendanceExport(
   row: AttendanceFlatRow,
   column: AttendanceExportColumnId,
@@ -708,7 +1114,7 @@ export function cellForAttendanceExport(
     case 'shift_kind':
       return row.shift_kind;
     case 'sheet_status':
-      return row.sheet_status;
+      return sheetStatusLabel(row.sheet_status);
     case 'location':
       return row.location;
     case 'team_name':

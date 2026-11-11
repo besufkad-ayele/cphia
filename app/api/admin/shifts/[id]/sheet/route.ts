@@ -9,20 +9,21 @@ import { getSupabaseAdmin } from '@/app/lib/supabase/server';
 
 export const runtime = 'nodejs';
 
-type Action = 'seed' | 'submit' | 'verify' | 'reopen';
+type Action = 'seed' | 'submit' | 'verify' | 'reopen' | 'set_default';
 
 const ACTION_CAPABILITY: Record<Action, PermissionKey> = {
   seed: 'attendance.mark',
   submit: 'attendance.submit',
   verify: 'attendance.verify',
   reopen: 'attendance.reopen',
+  set_default: 'attendance.default',
 };
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
   const action = String(body.action ?? '') as Action;
-  if (!['seed', 'submit', 'verify', 'reopen'].includes(action)) {
+  if (!['seed', 'submit', 'verify', 'reopen', 'set_default'].includes(action)) {
     return NextResponse.json({ error: 'INVALID', message: 'Unknown sheet action.' }, { status: 400 });
   }
   const gate = await requireCapability(request, ACTION_CAPABILITY[action]);
@@ -41,6 +42,30 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const ownership = await assertSupervisorOwnsShift(supabase, gate.session, shift);
     if (!ownership.ok) {
       return NextResponse.json({ error: 'FORBIDDEN', message: ownership.message }, { status: 403 });
+    }
+
+    if (action === 'set_default') {
+      if (gate.session.role !== 'super_admin') {
+        return NextResponse.json(
+          { error: 'FORBIDDEN', message: 'Only a superadmin can set the floor default shift.' },
+          { status: 403 },
+        );
+      }
+      await supabase.from('ops_shifts').update({ is_floor_default: false }).eq('is_floor_default', true);
+      const { error: defaultError } = await supabase
+        .from('ops_shifts')
+        .update({ is_floor_default: true })
+        .eq('id', id);
+      if (defaultError) return dbError(defaultError);
+      await logActivity({
+        actor: gate.session,
+        action: 'attendance.default',
+        summary: `${gate.session.fullName} set “${shift.name}” as the floor default attendance sheet`,
+        entityType: 'shift',
+        entityId: id,
+        request,
+      });
+      return NextResponse.json({ ok: true, defaultShiftId: id });
     }
 
     if (action === 'seed') {

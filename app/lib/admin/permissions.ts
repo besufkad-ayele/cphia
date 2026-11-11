@@ -85,6 +85,7 @@ export const MODULE_CAPABILITIES = {
     { key: 'attendance.submit', label: 'Submit sheet', detail: 'Submit a completed sheet for review' },
     { key: 'attendance.verify', label: 'Verify sheet', detail: 'Admin lock of a team or training sheet' },
     { key: 'attendance.reopen', label: 'Reopen sheet', detail: 'Unlock a verified sheet for corrections' },
+    { key: 'attendance.default', label: 'Set floor default shift', detail: 'Choose which open sheet floor staff use by default' },
     { key: 'attendance.reports', label: 'Reports & export', detail: 'Open attendance reports and download exports' },
   ],
   shifts: [

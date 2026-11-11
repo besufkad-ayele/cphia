@@ -87,7 +87,7 @@
       "bankAccountName": "የሂሳብ ባለቤት ስም",
       "bankAccountNumber": "የሂሳብ ቁጥር",
       "bankOtherOwner": "ይህ ሂሳብ የሌላ ሰው ነው",
-      "bankOtherOwnerHint": "TODO: review by native speaker — check this if the bank account is not in your name",
+      "bankOtherOwnerHint": "ከሂሳቡ ባለቤት መታወቂያ የሌላ ሰው ከሆነ የሚረጋግጡትን መረጃ ያረጋግጡ",
       "bankOwnerIdPhoto": "የሂሳቡ ባለቤት መታወቂያ ፎቶ",
       "bankOwnerIdPhotoHint": "TODO: review by native speaker — clear photo of the account owner’s ID",
       "ureport": "በ U-Report ተመዝግበዋል?",

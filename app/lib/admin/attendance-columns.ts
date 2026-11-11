@@ -1,45 +1,51 @@
-/** Columns for attendance reports / export (verified sheets only). */
+/** Columns for attendance reports / export (approved volunteers only). */
 
 export const ATTENDANCE_MARK_COLUMNS = [
-  { id: 'status', label: 'Attendance status' },
-  { id: 'notes', label: 'Attendance notes' },
-  { id: 'checked_in_at', label: 'Checked in at' },
-  { id: 'updated_at', label: 'Mark updated at' },
-  { id: 'shift_name', label: 'Shift name' },
-  { id: 'shift_date', label: 'Shift date' },
-  { id: 'period', label: 'Period (morning/afternoon)' },
-  { id: 'start_time', label: 'Shift start' },
-  { id: 'end_time', label: 'Shift end' },
-  { id: 'shift_kind', label: 'Shift kind' },
-  { id: 'sheet_status', label: 'Sheet status' },
-  { id: 'location', label: 'Location' },
-  { id: 'team_name', label: 'Floor team' },
+  { id: 'status', label: 'Attendance mark (present / late / absent / excused)' },
+  { id: 'notes', label: 'Attendance notes from checker' },
+  { id: 'checked_in_at', label: 'Check-in timestamp' },
+  { id: 'updated_at', label: 'Attendance mark last updated' },
+  { id: 'shift_name', label: 'Shift / sheet name' },
+  { id: 'shift_date', label: 'Shift calendar date' },
+  { id: 'period', label: 'Session period (Morning or Afternoon)' },
+  { id: 'start_time', label: 'Shift start time' },
+  { id: 'end_time', label: 'Shift end time' },
+  { id: 'shift_kind', label: 'Shift kind (training / ops)' },
+  { id: 'sheet_status', label: 'Sheet workflow status (pending / submitted / completed)' },
+  { id: 'location', label: 'Shift location' },
+  { id: 'team_name', label: 'Floor team name' },
   { id: 'cohort_code', label: 'Event / cohort code' },
   { id: 'cohort_name', label: 'Event / cohort name' },
 ] as const;
 
 /** Registration fields commonly needed beside attendance marks. */
 export const ATTENDANCE_PERSON_COLUMNS = [
-  { id: 'registration_id', label: 'Registration ID' },
+  { id: 'registration_id', label: 'Volunteer registration ID' },
   { id: 'first_name', label: 'Given name' },
   { id: 'middle_name', label: 'Father name' },
   { id: 'last_name', label: 'Grandfather name' },
   { id: 'full_name_amharic', label: 'Full name (Amharic)' },
   { id: 'sex', label: 'Gender' },
-  { id: 'age', label: 'Age' },
-  { id: 'phone', label: 'Phone' },
+  { id: 'age', label: 'Age (years)' },
+  { id: 'phone', label: 'Primary phone' },
   { id: 'secondary_phone', label: 'Secondary phone' },
-  { id: 'email', label: 'Email' },
+  { id: 'email', label: 'Email address' },
   { id: 'fan_number', label: 'FAN number' },
-  { id: 'sector', label: 'Sector' },
-  { id: 'health_subsectors', label: 'Health sub-sector' },
+  { id: 'sector', label: 'Assigned sector' },
+  { id: 'health_subsectors', label: 'Health sub-sector(s)' },
   { id: 'profession', label: 'Profession' },
-  { id: 'residence_region', label: 'Region' },
-  { id: 'bank_name', label: 'Bank' },
-  { id: 'bank_account_name', label: 'Account owner name' },
-  { id: 'bank_account_number', label: 'Account number' },
+  { id: 'residence_region', label: 'Residence region' },
+  { id: 'bank_name', label: 'Bank name' },
+  { id: 'bank_account_name', label: 'Bank account owner name' },
+  { id: 'bank_account_number', label: 'Bank account number' },
   { id: 'cohort', label: 'Volunteer cohort code' },
 ] as const;
+
+export type AttendancePersonColumnId = (typeof ATTENDANCE_PERSON_COLUMNS)[number]['id'];
+
+/** Person identity columns used for one-row-per-volunteer bulk exports. */
+export const ATTENDANCE_PERSON_EXPORT_COLUMN_IDS: AttendancePersonColumnId[] =
+  ATTENDANCE_PERSON_COLUMNS.map((column) => column.id);
 
 export const ATTENDANCE_EXPORT_COLUMNS = [
   ...ATTENDANCE_PERSON_COLUMNS,
@@ -66,6 +72,20 @@ export const DEFAULT_ATTENDANCE_EXPORT_COLUMNS: AttendanceExportColumnId[] = [
   'notes',
 ];
 
+/** Default identity columns when exporting bulk training as one row per approved volunteer. */
+export const DEFAULT_PERSON_DAY_EXPORT_COLUMNS: AttendancePersonColumnId[] = [
+  'registration_id',
+  'first_name',
+  'middle_name',
+  'last_name',
+  'phone',
+  'email',
+  'sector',
+  'age',
+  'bank_account_name',
+  'bank_account_number',
+];
+
 export function shiftPeriod(startTime: string | null | undefined): 'morning' | 'afternoon' {
   const hour = Number(String(startTime ?? '00').slice(0, 2));
   if (!Number.isFinite(hour)) return 'morning';
@@ -74,6 +94,40 @@ export function shiftPeriod(startTime: string | null | undefined): 'morning' | '
 
 export function periodLabel(period: 'morning' | 'afternoon') {
   return period === 'morning' ? 'Morning' : 'Afternoon';
+}
+
+/** Sheet workflow labels for reports UI / export. */
+export function sheetStatusLabel(status: string | null | undefined) {
+  switch (status) {
+    case 'open':
+      return 'Pending';
+    case 'submitted':
+      return 'Submitted';
+    case 'verified':
+      return 'Completed';
+    default:
+      return status || 'Unknown';
+  }
+}
+
+/**
+ * Training export day header: "Monday 09" (weekday + day-of-month).
+ * Uses Africa/Addis noon anchor so the calendar day does not drift.
+ */
+export function attendanceDayColumnHeader(isoDate: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
+  if (!match) return isoDate;
+  const date = new Date(`${isoDate}T12:00:00+03:00`);
+  if (Number.isNaN(date.getTime())) return isoDate;
+  const weekday = new Intl.DateTimeFormat('en-US', {
+    weekday: 'long',
+    timeZone: 'Africa/Addis_Ababa',
+  }).format(date);
+  return `${weekday} ${match[3]}`;
+}
+
+export function attendancePeriodColumnHeader(isoDate: string, period: 'morning' | 'afternoon') {
+  return `${attendanceDayColumnHeader(isoDate)} · ${periodLabel(period)}`;
 }
 
 export const PERIOD_PRESETS = {

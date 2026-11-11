@@ -42,7 +42,7 @@ type FloorShift = {
 
 type FloorPayload = {
   date: string;
-  totals: { present: number; late: number; absent: number; excused: number; gap: number; shifts: number };
+  totals: { present: number; late: number; absent: number; excused: number; gap: number; shifts: number; people?: number };
   shifts: FloorShift[];
   teams: TeamRollup[];
   cohorts: Cohort[];
@@ -73,7 +73,7 @@ export default function FloorPage() {
       <PageHeader
         kicker="LIVE"
         title="Live floor"
-        description="Live present / late / absent by shift and by floor team. Refreshes every 30 seconds."
+        description="Unique people for the day (morning or afternoon counts once), plus per-shift and floor-team counts. Refreshes every 30 seconds."
       />
       <Banner message={error} />
       <Card>
@@ -99,9 +99,9 @@ export default function FloorPage() {
 
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-5">
         <Card><CardHeader><CardTitle className="text-2xl sm:text-3xl">{data?.totals.shifts ?? 0}</CardTitle><p className="text-sm text-zinc-400">Shifts today</p></CardHeader></Card>
-        <Card><CardHeader><CardTitle className="text-2xl text-emerald-300 sm:text-3xl">{data?.totals.present ?? 0}</CardTitle><p className="text-sm text-zinc-400">Present</p></CardHeader></Card>
-        <Card><CardHeader><CardTitle className="text-2xl text-[#e7c15a] sm:text-3xl">{data?.totals.late ?? 0}</CardTitle><p className="text-sm text-zinc-400">Late</p></CardHeader></Card>
-        <Card><CardHeader><CardTitle className="text-2xl text-zinc-200 sm:text-3xl">{data?.totals.absent ?? 0}</CardTitle><p className="text-sm text-zinc-400">Absent</p></CardHeader></Card>
+        <Card><CardHeader><CardTitle className="text-2xl text-emerald-300 sm:text-3xl">{data?.totals.present ?? 0}</CardTitle><p className="text-sm text-zinc-400">Present (people)</p></CardHeader></Card>
+        <Card><CardHeader><CardTitle className="text-2xl text-[#e7c15a] sm:text-3xl">{data?.totals.late ?? 0}</CardTitle><p className="text-sm text-zinc-400">Late (people)</p></CardHeader></Card>
+        <Card><CardHeader><CardTitle className="text-2xl text-zinc-200 sm:text-3xl">{data?.totals.absent ?? 0}</CardTitle><p className="text-sm text-zinc-400">Absent (people)</p></CardHeader></Card>
         <Card className="col-span-2 xl:col-span-1"><CardHeader><CardTitle className="text-2xl text-rose-300 sm:text-3xl">{data?.totals.gap ?? 0}</CardTitle><p className="text-sm text-zinc-400">Capacity gap</p></CardHeader></Card>
       </div>
 

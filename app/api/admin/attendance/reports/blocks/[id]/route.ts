@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { periodLabel, shiftPeriod } from '@/app/lib/admin/attendance-columns';
 import {
+  loadApprovedVolunteers,
   loadAttendanceRows,
   summarizeAttendance,
   summarizeTrainingByDay,
@@ -90,8 +91,18 @@ export async function GET(
           scopedTeamIds,
         })
       : [];
+    const approvedPeople = await loadApprovedVolunteers(supabase, {
+      sector: filters.sector,
+      healthSubsector: filters.healthSubsector,
+      search: filters.search,
+    });
     const markSummary = summarizeAttendance(rows);
-    const daySummary = summarizeTrainingByDay(rows);
+    let daySummary: ReturnType<typeof summarizeTrainingByDay>;
+    try {
+      daySummary = summarizeTrainingByDay(rows, { approvedPeople });
+    } catch {
+      daySummary = summarizeTrainingByDay([]);
+    }
     const cohort = one(block.ops_cohorts as { name?: string; code?: string } | { name?: string; code?: string }[] | null);
     const team = one(block.ops_teams as { name?: string; code?: string } | { name?: string; code?: string }[] | null);
 
@@ -115,7 +126,12 @@ export async function GET(
       shifts,
       selectedShiftIds,
       // Training dashboard (morning+afternoon → one day; late = present)
-      day: daySummary,
+      day: {
+        totals: daySummary.totals,
+        byPerson: daySummary.byPerson ?? [],
+        bySector: daySummary.bySector ?? [],
+        byDay: daySummary.byDay ?? [],
+      },
       // Sheet-level (for opening a single morning/afternoon checklist)
       marks: {
         totals: markSummary.totals,

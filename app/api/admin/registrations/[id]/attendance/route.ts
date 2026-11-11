@@ -123,6 +123,14 @@ export async function GET(
         cohortCode: cohort?.code || '',
         cohortName: cohort?.name || '',
       };
+    }).sort((a, b) => {
+      // Chronological shift order: date, then morning before afternoon, then start time.
+      const byDate = a.shiftDate.localeCompare(b.shiftDate);
+      if (byDate) return byDate;
+      const periodRank = (period: string) => (period === 'afternoon' ? 1 : 0);
+      const byPeriod = periodRank(a.period) - periodRank(b.period);
+      if (byPeriod) return byPeriod;
+      return a.startTime.localeCompare(b.startTime) || a.shiftName.localeCompare(b.shiftName);
     });
 
     const summary = {

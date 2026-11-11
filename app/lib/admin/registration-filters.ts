@@ -1,4 +1,4 @@
-import { HEALTH_SUBSECTORS, SECTORS } from '@cphia/shared/constants';
+import { HEALTH_SUBSECTORS, normalizeSector } from '@cphia/shared/constants';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { deriveAdminStatus } from './status';
 import type { RegistrationMetrics } from './types';
@@ -11,8 +11,7 @@ export type RegistrationFilterParams = {
 };
 
 export function parseSector(value: string | null) {
-  if (!value) return null;
-  return (SECTORS as readonly string[]).includes(value) ? value : null;
+  return normalizeSector(value);
 }
 
 export function parseSubsector(value: string | null) {
@@ -24,8 +23,31 @@ export function sanitizeSearch(value: string) {
   return value.replace(/[,.%()\\]/g, ' ').trim().slice(0, 80);
 }
 
+/** Spellings that may still exist on older registration rows for one canonical sector. */
+export function sectorFilterValues(canonical: string) {
+  const normalized = normalizeSector(canonical) || canonical;
+  const variants = new Set<string>([normalized]);
+  if (normalized === 'U-Report') {
+    variants.add('u-report');
+    variants.add('U-report');
+    variants.add('ureport');
+    variants.add('U Report');
+  }
+  if (normalized === 'Serve Global') {
+    variants.add('serve global');
+    variants.add('ServeGlobal');
+  }
+  if (normalized === 'Ethiopian Youth Council') {
+    variants.add('ethiopian youth council');
+    variants.add('Ethiopian Youth Councle');
+    variants.add('Youth Council');
+  }
+  return [...variants];
+}
+
 type FilterableQuery = {
   eq: (column: string, value: unknown) => FilterableQuery;
+  in: (column: string, values: unknown[]) => FilterableQuery;
   contains: (column: string, value: unknown) => FilterableQuery;
   or: (filters: string) => FilterableQuery;
 };
@@ -40,7 +62,10 @@ export function applyRegistrationFilters<T extends FilterableQuery>(
     next = next.eq('review_status', filters.status) as T;
   }
   if (filters.sector) {
-    next = next.eq('sector', filters.sector) as T;
+    const variants = sectorFilterValues(filters.sector);
+    next = (variants.length === 1
+      ? next.eq('sector', variants[0])
+      : next.in('sector', variants)) as T;
   }
   if (filters.subsector) {
     next = next.contains('health_subsectors', [filters.subsector]) as T;
