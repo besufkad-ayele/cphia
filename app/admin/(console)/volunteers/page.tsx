@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Copy, Download, Plus, Search } from 'lucide-react';
 import {
-  ROLE_SUBSECTORS,
   SECTORS,
   isKnownSubsector,
   sectorHasSubsectors,
@@ -73,14 +72,10 @@ function metricsFromRows(rows: RegistrationSummary[]): RegistrationMetrics {
   );
 }
 
-/** Tourism / Transport / MoFA / Culture are both top-level sectors and youth-org sub-sectors. */
+/** Sector filter is exact — Transport means sector Transport only, not a Transport sub-category. */
 function rowMatchesSectorFilter(row: RegistrationSummary, sector: string) {
   if (!sector) return true;
-  if (sectorsMatch(row.sector, sector)) return true;
-  if ((ROLE_SUBSECTORS as readonly string[]).includes(sector)) {
-    return (row.roleSubsectors ?? []).some((item) => sectorsMatch(item, sector));
-  }
-  return false;
+  return sectorsMatch(row.sector, sector);
 }
 
 function rowMatchesSubsectorFilter(row: RegistrationSummary, sector: string, subsector: string) {
@@ -191,6 +186,8 @@ function VolunteersTable() {
     isKnownSubsector(initialSubsector) ? initialSubsector : '',
   );
   const [savingSubsectorId, setSavingSubsectorId] = useState<string | null>(null);
+  const [exportSector, setExportSector] = useState(initialSector);
+  const [exportSubsector, setExportSubsector] = useState(initialSubsector);
   const [search, setSearch] = useState(initialSearch);
   const [page, setPage] = useState(Number.isFinite(initialPage) && initialPage > 0 ? initialPage : 1);
   const [loading, setLoading] = useState(true);
@@ -397,11 +394,19 @@ function VolunteersTable() {
   }
 
   function exportFile(format: 'csv' | 'xlsx') {
-    const params = new URLSearchParams({ columns: selectedColumns.join(','), format });
+    const required = ['sector', 'health_subsectors', 'role_subsectors'];
+    const columns = [...selectedColumns];
+    for (const id of required) {
+      if (!columns.includes(id)) {
+        const sectorAt = columns.indexOf('sector');
+        columns.splice(sectorAt >= 0 ? sectorAt + 1 : columns.length, 0, id);
+      }
+    }
+    const params = new URLSearchParams({ columns: columns.join(','), format });
     if (status !== 'all') params.set('status', status);
     if (search.trim()) params.set('search', search.trim());
-    if (sector) params.set('sector', sector);
-    if (subsector) params.set('subsector', subsector);
+    if (exportSector) params.set('sector', exportSector);
+    if (exportSubsector) params.set('subsector', exportSubsector);
     window.location.assign(`/api/admin/registrations/export?${params}`);
     setExportOpen(false);
   }
@@ -450,6 +455,8 @@ function VolunteersTable() {
                   ...EXPORT_COLUMNS.map((column) => column.id),
                   ...(isSuperAdmin ? EXPORT_ASSET_COLUMNS.map((column) => column.id) : []),
                 ]);
+                setExportSector(sector);
+                setExportSubsector(subsector);
                 setExportOpen(true);
               }}
             >
@@ -804,9 +811,59 @@ function VolunteersTable() {
         onSelectedColumnsChange={setSelectedColumns}
         includeAssets={isSuperAdmin}
         title="Export volunteers"
-        description="Choose columns, then download Excel or CSV. Current search, status, sector, and sub-sector filters apply."
+        description="Sector = exact sector only. Sub-category only appears for Health / UNICEF / U-Report / Serve Global / Ethiopian Youth Council. Choose columns, then download."
         onExport={exportFile}
-      />
+      >
+        <div className={`mb-3 grid gap-3 ${sectorHasSubsectors(exportSector) ? 'sm:grid-cols-2' : ''}`}>
+          <label className="grid gap-1.5 text-sm">
+            <span className="text-muted-foreground">Sector</span>
+            <select
+              className="h-11 rounded-md border border-input bg-background px-3 text-sm"
+              value={exportSector}
+              onChange={(event) => {
+                const next = event.target.value;
+                setExportSector(next);
+                if (!sectorHasSubsectors(next)) setExportSubsector('');
+                else if (exportSubsector && !subsectorOptionsForSector(next).includes(exportSubsector)) {
+                  setExportSubsector('');
+                }
+              }}
+            >
+              <option value="">All sectors</option>
+              {SECTORS.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+          {sectorHasSubsectors(exportSector) ? (
+            <label className="grid gap-1.5 text-sm">
+              <span className="text-muted-foreground">{subsectorLabelForSector(exportSector)}</span>
+              <select
+                className="h-11 rounded-md border border-input bg-background px-3 text-sm"
+                value={exportSubsector}
+                onChange={(event) => setExportSubsector(event.target.value)}
+              >
+                <option value="">All sub-categories</option>
+                {subsectorOptionsForSector(exportSector).map((option) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          <p className="text-xs text-muted-foreground sm:col-span-2">
+            {exportSector && !exportSubsector
+              ? `Exporting only people whose sector is ${exportSector}.`
+              : exportSector && exportSubsector
+                ? `Exporting ${exportSector} people assigned to ${exportSubsector}.`
+                : [
+                    status !== 'all' ? `Status: ${status}` : null,
+                    search.trim() ? `Search: ${search.trim()}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ') || 'No sector filter — exporting the full loaded cohort.'}
+          </p>
+        </div>
+      </ExportColumnsDialog>
 
       <VolunteerPreviewDialog
         volunteerId={previewId}

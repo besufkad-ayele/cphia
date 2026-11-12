@@ -21,11 +21,23 @@ type ShiftListRow = {
   capacity: number;
   kind?: string;
   team_id?: string | null;
+  block_id?: string | null;
   sheet_status?: string;
   is_floor_default?: boolean;
   cohort_id?: string;
   ops_cohorts?: { name: string; code: string } | { name: string; code: string }[] | null;
   ops_teams?: { name: string; code: string } | { name: string; code: string }[] | null;
+};
+
+type BlockListRow = {
+  id: string;
+  name: string;
+  kind: string;
+  start_date: string;
+  end_date: string;
+  location: string;
+  team_id?: string | null;
+  is_floor_default?: boolean;
 };
 
 function volunteerDisplayName(person: {
@@ -56,29 +68,44 @@ export async function GET(request: NextRequest) {
     const supabase = getSupabaseAdmin();
     const scopedTeamIds = await supervisedTeamIds(supabase, session);
     let shifts: ShiftListRow[] = [];
+    let blocks: BlockListRow[] = [];
     if (canAttendance) {
       let shiftQuery = supabase
         .from('ops_shifts')
-        .select('id, name, shift_date, start_time, end_time, location, capacity, kind, team_id, sheet_status, is_floor_default, cohort_id, ops_cohorts(name, code), ops_teams(name, code)')
+        .select('id, name, shift_date, start_time, end_time, location, capacity, kind, team_id, block_id, sheet_status, is_floor_default, cohort_id, ops_cohorts(name, code), ops_teams(name, code)')
         .order('shift_date', { ascending: true })
         .order('start_time', { ascending: true });
+      let blockQuery = supabase
+        .from('ops_shift_blocks')
+        .select('id, name, kind, start_date, end_date, location, team_id, is_floor_default')
+        .order('start_date', { ascending: false });
       if (scopedTeamIds) {
         if (!scopedTeamIds.length) {
           shifts = [];
+          blocks = [];
         } else {
           shiftQuery = shiftQuery.eq('kind', 'ops').in('team_id', scopedTeamIds);
-          const shiftResult = await shiftQuery;
+          blockQuery = blockQuery.eq('kind', 'ops').in('team_id', scopedTeamIds);
+          const [shiftResult, blockResult] = await Promise.all([shiftQuery, blockQuery]);
           if (shiftResult.error) return dbError(shiftResult.error);
+          if (blockResult.error) return dbError(blockResult.error);
           shifts = (shiftResult.data ?? []) as ShiftListRow[];
+          blocks = (blockResult.data ?? []) as BlockListRow[];
         }
       } else {
-        const shiftResult = await shiftQuery;
+        const [shiftResult, blockResult] = await Promise.all([shiftQuery, blockQuery]);
         if (shiftResult.error) return dbError(shiftResult.error);
+        if (blockResult.error) return dbError(blockResult.error);
         shifts = (shiftResult.data ?? []) as ShiftListRow[];
+        blocks = (blockResult.data ?? []) as BlockListRow[];
       }
     }
 
+    const defaultBlockId = blocks.find((block) => block.is_floor_default)?.id || null;
     const defaultShiftId = shifts.find((shift) => shift.is_floor_default)?.id
+      || (defaultBlockId
+        ? shifts.find((shift) => shift.block_id === defaultBlockId && (shift.sheet_status || 'open') === 'open')?.id
+        : null)
       || shifts.find((shift) => (shift.sheet_status || 'open') === 'open')?.id
       || shifts[0]?.id
       || null;
@@ -243,10 +270,12 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       shifts,
+      blocks,
       rows,
       matches,
       sheet,
       defaultShiftId,
+      defaultBlockId,
       lastPresentByPerson,
     });
   } catch (error) {

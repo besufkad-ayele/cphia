@@ -31,6 +31,8 @@ import { href } from '@/lib/app-href';
 import { cn } from '@/lib/utils';
 
 const SHIFT_STORAGE_KEY = 'cphia.attendance.shiftId';
+const BLOCK_STORAGE_KEY = 'cphia.attendance.blockId';
+const UNGROUPED_BLOCK = '__ungrouped__';
 
 type Shift = {
   id: string;
@@ -42,10 +44,21 @@ type Shift = {
   capacity: number;
   kind?: string;
   team_id?: string | null;
+  block_id?: string | null;
   sheet_status?: string;
   is_floor_default?: boolean;
   ops_cohorts: { name: string; code: string } | { name: string; code: string }[] | null;
   ops_teams?: { name: string; code: string } | { name: string; code: string }[] | null;
+};
+type Block = {
+  id: string;
+  name: string;
+  kind: string;
+  start_date: string;
+  end_date: string;
+  location: string;
+  team_id?: string | null;
+  is_floor_default?: boolean;
 };
 type Person = {
   id: string;
@@ -170,12 +183,57 @@ function writeStoredShiftId(id: string) {
   }
 }
 
-function syncShiftInUrl(id: string) {
+function readStoredBlockId() {
+  if (typeof window === 'undefined') return '';
+  try {
+    return window.localStorage.getItem(BLOCK_STORAGE_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+function writeStoredBlockId(id: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    if (id) window.localStorage.setItem(BLOCK_STORAGE_KEY, id);
+    else window.localStorage.removeItem(BLOCK_STORAGE_KEY);
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
+function syncShiftInUrl(id: string, blockId?: string) {
   if (typeof window === 'undefined') return;
   const url = new URL(window.location.href);
   if (id) url.searchParams.set('shiftId', id);
   else url.searchParams.delete('shiftId');
+  if (blockId && blockId !== UNGROUPED_BLOCK) url.searchParams.set('blockId', blockId);
+  else if (blockId === UNGROUPED_BLOCK) url.searchParams.set('blockId', UNGROUPED_BLOCK);
+  else url.searchParams.delete('blockId');
   window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
+function pickPreferredBlockId(options: {
+  blocks: Block[];
+  shifts: Shift[];
+  requestedId: string;
+  defaultBlockId: string | null;
+  shiftId: string;
+}) {
+  const { blocks, shifts, requestedId, defaultBlockId, shiftId } = options;
+  if (requestedId === UNGROUPED_BLOCK) return UNGROUPED_BLOCK;
+  if (requestedId && blocks.some((block) => block.id === requestedId)) return requestedId;
+
+  const selectedShift = shifts.find((shift) => shift.id === shiftId);
+  if (selectedShift?.block_id && blocks.some((block) => block.id === selectedShift.block_id)) {
+    return selectedShift.block_id;
+  }
+  if (defaultBlockId && blocks.some((block) => block.id === defaultBlockId)) return defaultBlockId;
+  const floor = blocks.find((block) => block.is_floor_default);
+  if (floor) return floor.id;
+  if (blocks[0]) return blocks[0].id;
+  if (shifts.some((shift) => !shift.block_id)) return UNGROUPED_BLOCK;
+  return '';
 }
 
 function isAttendanceOnlyRole(session: AdminSession | null) {
@@ -334,7 +392,10 @@ function MarkButtons({
 function AttendanceDesk() {
   const searchParams = useSearchParams();
   const [allShifts, setAllShifts] = useState<Shift[]>([]);
+  const [allBlocks, setAllBlocks] = useState<Block[]>([]);
   const [defaultShiftId, setDefaultShiftId] = useState<string | null>(null);
+  const [defaultBlockId, setDefaultBlockId] = useState<string | null>(null);
+  const [blockId, setBlockId] = useState(searchParams.get('blockId') || '');
   const [shiftId, setShiftId] = useState(searchParams.get('shiftId') || '');
   const [rows, setRows] = useState<Row[]>([]);
   const [sheet, setSheet] = useState<Sheet | null>(null);
@@ -371,30 +432,47 @@ function AttendanceDesk() {
     return row.marked_by_name;
   }
 
+  const shiftsInBlock = useMemo(() => {
+    if (!blockId) return allShifts;
+    if (blockId === UNGROUPED_BLOCK) return allShifts.filter((shift) => !shift.block_id);
+    return allShifts.filter((shift) => shift.block_id === blockId);
+  }, [allShifts, blockId]);
+
   const shifts = useMemo(() => {
-    if (!attendanceOnly) return allShifts;
-    const open = allShifts.filter((shift) => (shift.sheet_status || 'open') === 'open');
+    const pool = shiftsInBlock;
+    if (!attendanceOnly) return pool;
+    const open = pool.filter((shift) => (shift.sheet_status || 'open') === 'open');
     if (open.length) {
       return [...open].sort((a, b) => Number(Boolean(b.is_floor_default)) - Number(Boolean(a.is_floor_default)));
     }
     return [];
-  }, [allShifts, attendanceOnly]);
+  }, [shiftsInBlock, attendanceOnly]);
 
-  async function loadShift(nextShiftId: string) {
+  const hasUngrouped = useMemo(
+    () => allShifts.some((shift) => !shift.block_id),
+    [allShifts],
+  );
+
+  async function loadShift(nextShiftId: string, nextBlockId = blockId) {
     const params = new URLSearchParams();
     if (nextShiftId) params.set('shiftId', nextShiftId);
     const payload = await adminFetch<{
       shifts: Shift[];
+      blocks: Block[];
       rows: Row[];
       matches: Person[];
       sheet: Sheet | null;
       defaultShiftId?: string | null;
+      defaultBlockId?: string | null;
       lastPresentByPerson?: Record<string, string>;
     }>(`/api/admin/attendance?${params}`);
 
     const nextShifts = payload.shifts ?? [];
+    const nextBlocks = payload.blocks ?? [];
     setAllShifts(nextShifts);
+    setAllBlocks(nextBlocks);
     setDefaultShiftId(payload.defaultShiftId ?? null);
+    setDefaultBlockId(payload.defaultBlockId ?? null);
     setRows((payload.rows ?? []).filter((row) => {
       const person = one(row.registrations);
       return !person?.review_status || person.review_status === 'approved';
@@ -403,9 +481,30 @@ function AttendanceDesk() {
     setLastPresentByPerson(payload.lastPresentByPerson ?? {});
 
     const markerOnly = isAttendanceOnlyRole(session);
+    const requestedBlock = nextBlockId || readStoredBlockId() || searchParams.get('blockId') || '';
+    const preferredBlock = pickPreferredBlockId({
+      blocks: nextBlocks,
+      shifts: nextShifts,
+      requestedId: requestedBlock,
+      defaultBlockId: payload.defaultBlockId ?? null,
+      shiftId: nextShiftId || readStoredShiftId() || '',
+    });
+    if (preferredBlock && preferredBlock !== nextBlockId) {
+      setBlockId(preferredBlock);
+      writeStoredBlockId(preferredBlock);
+    } else if (preferredBlock) {
+      writeStoredBlockId(preferredBlock);
+    }
+
+    const blockPool = preferredBlock === UNGROUPED_BLOCK
+      ? nextShifts.filter((shift) => !shift.block_id)
+      : preferredBlock
+        ? nextShifts.filter((shift) => shift.block_id === preferredBlock)
+        : nextShifts;
+
     const requestedId = nextShiftId || readStoredShiftId() || searchParams.get('shiftId') || '';
     const preferred = pickPreferredShiftId({
-      shifts: nextShifts,
+      shifts: blockPool.length ? blockPool : nextShifts,
       requestedId,
       defaultShiftId: payload.defaultShiftId ?? null,
       attendanceOnly: markerOnly,
@@ -417,19 +516,28 @@ function AttendanceDesk() {
       && requested
       && (requested.sheet_status || 'open') !== 'open',
     );
+    const requestedOutsideBlock = Boolean(
+      preferredBlock
+      && requested
+      && (
+        preferredBlock === UNGROUPED_BLOCK
+          ? Boolean(requested.block_id)
+          : requested.block_id !== preferredBlock
+      ),
+    );
     const shouldSnapToPreferred = Boolean(
       preferred
       && preferred !== nextShiftId
-      && (!nextShiftId || !requested || requestedClosedForMarkers),
+      && (!nextShiftId || !requested || requestedClosedForMarkers || requestedOutsideBlock),
     );
 
     if (shouldSnapToPreferred && preferred) {
       setShiftId(preferred);
       writeStoredShiftId(preferred);
-      syncShiftInUrl(preferred);
+      syncShiftInUrl(preferred, preferredBlock);
     } else if (nextShiftId) {
       writeStoredShiftId(nextShiftId);
-      syncShiftInUrl(nextShiftId);
+      syncShiftInUrl(nextShiftId, preferredBlock);
     }
 
     return preferred;
@@ -458,9 +566,11 @@ function AttendanceDesk() {
   useEffect(() => {
     if (bootstrapped) return;
     const urlShift = searchParams.get('shiftId') || '';
-    const stored = readStoredShiftId();
-    const initial = urlShift || stored || '';
-    setShiftId(initial);
+    const urlBlock = searchParams.get('blockId') || '';
+    const storedShift = readStoredShiftId();
+    const storedBlock = readStoredBlockId();
+    setShiftId(urlShift || storedShift || '');
+    setBlockId(urlBlock || storedBlock || '');
     setBootstrapped(true);
   }, [bootstrapped, searchParams]);
 
@@ -551,17 +661,62 @@ function AttendanceDesk() {
   const locked = sheet?.sheetStatus === 'verified'
     || (attendanceOnly && sheet?.sheetStatus === 'submitted');
   const selected = shifts.find((shift) => shift.id === shiftId) || allShifts.find((shift) => shift.id === shiftId);
+  const selectedBlock = blockId === UNGROUPED_BLOCK
+    ? null
+    : allBlocks.find((block) => block.id === blockId) || null;
   const noOpenShiftForMarkers = attendanceOnly && shifts.length === 0;
 
-  function selectShift(nextId: string) {
-    setShiftId(nextId);
-    writeStoredShiftId(nextId);
-    syncShiftInUrl(nextId);
+  function selectBlock(nextId: string) {
+    setBlockId(nextId);
+    writeStoredBlockId(nextId);
+    const pool = nextId === UNGROUPED_BLOCK
+      ? allShifts.filter((shift) => !shift.block_id)
+      : nextId
+        ? allShifts.filter((shift) => shift.block_id === nextId)
+        : allShifts;
+    const markerOnly = attendanceOnly;
+    const openPool = markerOnly
+      ? pool.filter((shift) => (shift.sheet_status || 'open') === 'open')
+      : pool;
+    const preferred = pickPreferredShiftId({
+      shifts: openPool.length ? openPool : pool,
+      requestedId: '',
+      defaultShiftId,
+      attendanceOnly: markerOnly,
+    });
+    setShiftId(preferred);
+    writeStoredShiftId(preferred);
+    syncShiftInUrl(preferred, nextId);
     setTab('waiting');
     setQuery('');
     setIdentityId(null);
     setStatusFilter('all');
     setServerMatches([]);
+  }
+
+  function selectShift(nextId: string) {
+    setShiftId(nextId);
+    writeStoredShiftId(nextId);
+    syncShiftInUrl(nextId, blockId);
+    setTab('waiting');
+    setQuery('');
+    setIdentityId(null);
+    setStatusFilter('all');
+    setServerMatches([]);
+  }
+
+  async function setDefaultBlock() {
+    if (!blockId || blockId === UNGROUPED_BLOCK) return;
+    try {
+      await adminFetch(`/api/admin/shifts/blocks/${blockId}`, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'set_default' }),
+      });
+      toast.success('Floor default bulk block set. Attendance opens this sheet group first.');
+      await loadShift(shiftId, blockId);
+    } catch (reason) {
+      toast.error(reason instanceof Error ? reason.message : 'Could not set the default bulk block.');
+    }
   }
 
   async function mark(registrationId: string, status: AttendanceStatus, person?: Person | null) {
@@ -648,36 +803,68 @@ function AttendanceDesk() {
 
       <div className="grid gap-2 rounded-2xl border border-[#e7c15a]/35 bg-[#e7c15a]/10 p-3">
         <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0 flex-1">
-            <label className="text-[11px] uppercase tracking-wide text-[#e7c15a]">
-              {attendanceOnly ? 'Open floor shift' : 'Selected shift'}
-            </label>
-            <select
-              className={cn(controlClass, 'mt-1 h-11 border-white/15 bg-black/40')}
-              value={shiftId}
-              onChange={(event) => selectShift(event.target.value)}
-              disabled={shifts.length === 0}
-            >
-              {shifts.length === 0 ? (
-                <option value="">
-                  {noOpenShiftForMarkers ? 'No open shift — wait for an admin' : 'No shifts yet'}
-                </option>
+          <div className="min-w-0 flex-1 grid gap-3">
+            <div>
+              <label className="text-[11px] uppercase tracking-wide text-[#e7c15a]">
+                1 · Bulk sheet
+              </label>
+              <select
+                className={cn(controlClass, 'mt-1 h-11 border-white/15 bg-black/40')}
+                value={blockId}
+                onChange={(event) => selectBlock(event.target.value)}
+                disabled={allBlocks.length === 0 && !hasUngrouped}
+              >
+                {allBlocks.length === 0 && !hasUngrouped ? (
+                  <option value="">No bulk blocks yet</option>
+                ) : null}
+                {allBlocks.map((block) => (
+                  <option key={block.id} value={block.id}>
+                    {(block.is_floor_default || block.id === defaultBlockId) ? '★ ' : ''}
+                    {block.name} · {block.start_date} → {block.end_date}
+                  </option>
+                ))}
+                {hasUngrouped ? (
+                  <option value={UNGROUPED_BLOCK}>Ungrouped shifts</option>
+                ) : null}
+              </select>
+              {selectedBlock ? (
+                <p className="mt-1 text-xs text-zinc-500">
+                  {selectedBlock.kind} · {selectedBlock.location || 'No location'}
+                  {selectedBlock.is_floor_default || selectedBlock.id === defaultBlockId ? ' · floor default bulk' : ''}
+                </p>
               ) : null}
-              {shifts.map((shift) => (
-                <option key={shift.id} value={shift.id}>
-                  {shiftLabel(shift)}
-                </option>
-              ))}
-            </select>
-            {selected ? (
-              <p className="mt-1 text-xs text-zinc-500">
-                sheet {sheet?.sheetStatus || selected.sheet_status || 'open'}
-                {' · '}capacity {selected.capacity || 'not set'}
-                {sheet?.seeded ? ` · seeded ${sheet.seeded}` : ''}
-                {sheet?.teamName ? ` · ${sheet.teamName}` : ''}
-                {selected.is_floor_default || selected.id === defaultShiftId ? ' · floor default' : ''}
-              </p>
-            ) : null}
+            </div>
+            <div>
+              <label className="text-[11px] uppercase tracking-wide text-[#e7c15a]">
+                {attendanceOnly ? '2 · Open floor shift' : '2 · Specific shift'}
+              </label>
+              <select
+                className={cn(controlClass, 'mt-1 h-11 border-white/15 bg-black/40')}
+                value={shiftId}
+                onChange={(event) => selectShift(event.target.value)}
+                disabled={shifts.length === 0}
+              >
+                {shifts.length === 0 ? (
+                  <option value="">
+                    {noOpenShiftForMarkers ? 'No open shift — wait for an admin' : 'No shifts in this bulk sheet'}
+                  </option>
+                ) : null}
+                {shifts.map((shift) => (
+                  <option key={shift.id} value={shift.id}>
+                    {shiftLabel(shift)}
+                  </option>
+                ))}
+              </select>
+              {selected ? (
+                <p className="mt-1 text-xs text-zinc-500">
+                  sheet {sheet?.sheetStatus || selected.sheet_status || 'open'}
+                  {' · '}capacity {selected.capacity || 'not set'}
+                  {sheet?.seeded ? ` · seeded ${sheet.seeded}` : ''}
+                  {sheet?.teamName ? ` · ${sheet.teamName}` : ''}
+                  {selected.is_floor_default || selected.id === defaultShiftId ? ' · floor default shift' : ''}
+                </p>
+              ) : null}
+            </div>
             {attendanceOnly && locked ? (
               <p className="mt-2 text-sm text-amber-300">
                 This sheet is {sheet?.sheetStatus}. Marking is blocked until an admin reopens it.
@@ -741,13 +928,22 @@ function AttendanceDesk() {
                       Reopen
                     </DropdownMenuItem>
                   ) : null}
+                  {canSetDefault && blockId && blockId !== UNGROUPED_BLOCK ? (
+                    <DropdownMenuItem
+                      disabled={Boolean(selectedBlock?.is_floor_default || selectedBlock?.id === defaultBlockId)}
+                      onClick={() => void setDefaultBlock()}
+                      className="focus:bg-white/10 focus:text-white"
+                    >
+                      Set bulk as floor default
+                    </DropdownMenuItem>
+                  ) : null}
                   {canSetDefault ? (
                     <DropdownMenuItem
                       disabled={Boolean(selected.is_floor_default)}
                       onClick={() => void sheetAction('set_default')}
                       className="focus:bg-white/10 focus:text-white"
                     >
-                      Set as floor default
+                      Set shift as floor default
                     </DropdownMenuItem>
                   ) : null}
                 </DropdownMenuGroup>

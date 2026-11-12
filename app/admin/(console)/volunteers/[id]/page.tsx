@@ -518,8 +518,17 @@ function VolunteerDetailPageInner() {
   }
 
   function exportVolunteer(format: 'csv' | 'xlsx') {
-    const columns = selectedColumns.join(',');
-    window.location.assign(`/api/admin/registrations/export?id=${params.id}&columns=${encodeURIComponent(columns)}&format=${format}`);
+    const required = ['sector', 'health_subsectors', 'role_subsectors'];
+    const columns = [...selectedColumns];
+    for (const id of required) {
+      if (!columns.includes(id)) {
+        const sectorAt = columns.indexOf('sector');
+        columns.splice(sectorAt >= 0 ? sectorAt + 1 : columns.length, 0, id);
+      }
+    }
+    window.location.assign(
+      `/api/admin/registrations/export?id=${params.id}&columns=${encodeURIComponent(columns.join(','))}&format=${format}`,
+    );
     setExportOpen(false);
   }
 

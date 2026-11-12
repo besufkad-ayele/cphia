@@ -68,9 +68,21 @@ export async function GET(request: NextRequest) {
       if (standardAllowed.has(item)) return true;
       return isSuper && assetAllowed.has(item);
     });
-  const selected: ExportColumnId[] = columns.length
-    ? columns
-    : (EXPORT_COLUMNS.map((column) => column.id) as ExportColumnId[]);
+  const selected: ExportColumnId[] = (() => {
+    const base = columns.length
+      ? columns
+      : (EXPORT_COLUMNS.map((column) => column.id) as ExportColumnId[]);
+    // Always keep sector + sub-category columns in volunteer exports.
+    const required = ['sector', 'health_subsectors', 'role_subsectors'] as const;
+    const next = [...base];
+    for (const id of required) {
+      if (!next.includes(id)) {
+        const sectorAt = next.indexOf('sector');
+        next.splice(sectorAt >= 0 ? sectorAt + 1 : next.length, 0, id);
+      }
+    }
+    return next;
+  })();
   const format = request.nextUrl.searchParams.get('format') === 'xlsx' ? 'xlsx' : 'csv';
   const statusParam = request.nextUrl.searchParams.get('status');
   const search = sanitizeSearch(request.nextUrl.searchParams.get('search') ?? '');

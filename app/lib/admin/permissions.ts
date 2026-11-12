@@ -92,7 +92,7 @@ export const MODULE_CAPABILITIES = {
     { key: 'shifts.view', label: 'View shifts', detail: 'See the duty roster' },
     { key: 'shifts.create', label: 'Create shifts', detail: 'Add training or ops duty blocks' },
     { key: 'shifts.edit', label: 'Edit shifts', detail: 'Change times, team, capacity, notes' },
-    { key: 'shifts.delete', label: 'Delete shifts', detail: 'Remove a shift and its marks' },
+    { key: 'shifts.delete', label: 'Delete shifts & blocks', detail: 'Remove a shift or bulk block and their attendance marks' },
   ],
   floor: [
     { key: 'floor.view', label: 'View live board', detail: 'See live present / gap counts' },

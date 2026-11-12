@@ -58,7 +58,7 @@ export const HEALTH_SUBSECTORS = [
 
 export type HealthSubsector = (typeof HEALTH_SUBSECTORS)[number];
 
-/** Sub-sectors for UNICEF, U-Report, Serve Global, and Ethiopian Youth Council. */
+/** Duty / role sub-sectors for assignment sectors (incl. Other). */
 export const ROLE_SUBSECTORS = [
   'Tourism',
   'Transport',
@@ -68,11 +68,13 @@ export const ROLE_SUBSECTORS = [
 
 export type RoleSubsector = (typeof ROLE_SUBSECTORS)[number];
 
+/** Top-level sectors that get ROLE_SUBSECTORS multi-select (not Tourism/Transport/etc as primary). */
 export const ROLE_ASSIGNMENT_SECTORS = [
   'UNICEF',
   'U-Report',
   'Serve Global',
   'Ethiopian Youth Council',
+  'Other',
 ] as const;
 
 export type RoleAssignmentSector = (typeof ROLE_ASSIGNMENT_SECTORS)[number];

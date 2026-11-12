@@ -76,6 +76,8 @@ export function applyRegistrationFilters<T extends FilterableQuery>(
   if (options?.includeStatus !== false && filters.status) {
     next = next.eq('review_status', filters.status) as T;
   }
+  // Sector filter is exact: Transport = only sector Transport.
+  // Sub-category is separate: U-Report + Transport sub-category = U-Report rows with that assignment.
   if (filters.sector) {
     const variants = sectorFilterValues(filters.sector);
     next = (variants.length === 1

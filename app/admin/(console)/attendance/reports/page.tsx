@@ -402,8 +402,20 @@ function AttendanceReportsPageInner() {
   const [sectorFocus, setSectorFocus] = useState(initial.sectorFocus);
   const [cameFilter, setCameFilter] = useState<CameFilter>(initial.cameFilter);
   const [exportOpen, setExportOpen] = useState(false);
-  const [selectedColumns, setSelectedColumns] = useState<string[]>([...DEFAULT_PERSON_DAY_EXPORT_COLUMNS]);
+  const [selectedColumns, setSelectedColumns] = useState<string[]>(() => {
+    const required = ['sector', 'health_subsectors', 'role_subsectors'] as const;
+    const columns: string[] = [...DEFAULT_PERSON_DAY_EXPORT_COLUMNS];
+    for (const id of required) {
+      if (!columns.includes(id)) {
+        const sectorAt = columns.indexOf('sector');
+        columns.splice(sectorAt >= 0 ? sectorAt + 1 : columns.length, 0, id);
+      }
+    }
+    return columns;
+  });
   const [exportMode, setExportMode] = useState<'day' | 'period'>('day');
+  const [exportSector, setExportSector] = useState(initial.filters.sector);
+  const [exportSubsector, setExportSubsector] = useState(initial.filters.subsector);
 
   const uiState = useMemo<ReportsUiState>(() => ({
     view,
@@ -583,6 +595,8 @@ function AttendanceReportsPageInner() {
       toast.error('Open a bulk block or shift first, then export.');
       return;
     }
+    setExportSector(filters.sector);
+    setExportSubsector(filters.subsector);
     setExportOpen(true);
   }
 
@@ -601,8 +615,8 @@ function AttendanceReportsPageInner() {
       // Single sheet still exports one row per approved volunteer with that date column.
       params.set('layout', exportMode === 'period' ? 'person-period' : 'person-day');
     }
-    if (filters.sector) params.set('sector', filters.sector);
-    if (sectorHasSubsectors(filters.sector) && filters.subsector) params.set('subsector', filters.subsector);
+    if (exportSector) params.set('sector', exportSector);
+    if (sectorHasSubsectors(exportSector) && exportSubsector) params.set('subsector', exportSubsector);
     if (filters.search.trim()) params.set('q', filters.search.trim());
     if (!filters.includePending) params.set('verifiedOnly', '1');
     window.location.href = `/api/admin/attendance/export?${params.toString()}`;
@@ -1318,10 +1332,57 @@ function AttendanceReportsPageInner() {
         onSelectedColumnsChange={setSelectedColumns}
         columnOptions={ATTENDANCE_PERSON_COLUMNS}
         title="Export attendance"
-        description="One row per approved volunteer (no duplicated people). Date columns use headers like Monday 09. Identity columns below; attendance dates are added automatically for the selected sheets."
+        description="Sector = exact sector only. For U-Report / UNICEF / etc., also pick a sub-category to export only that assignment. One row per approved volunteer."
         onExport={runExport}
       >
-        <div className="mb-3 grid gap-2">
+        <div className="mb-3 grid gap-3">
+          <div className={`grid gap-3 ${sectorHasSubsectors(exportSector) ? 'sm:grid-cols-2' : ''}`}>
+            <label className="grid gap-1.5 text-sm">
+              <span className="text-zinc-400">Sector</span>
+              <select
+                className={controlClass}
+                value={exportSector}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setExportSector(next);
+                  if (!sectorHasSubsectors(next)) setExportSubsector('');
+                  else if (
+                    exportSubsector &&
+                    !subsectorOptionsForSector(next).includes(exportSubsector)
+                  ) {
+                    setExportSubsector('');
+                  }
+                }}
+              >
+                <option value="">All sectors</option>
+                {SECTORS.map((option) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </select>
+            </label>
+            {sectorHasSubsectors(exportSector) ? (
+              <label className="grid gap-1.5 text-sm">
+                <span className="text-zinc-400">{subsectorLabelForSector(exportSector)}</span>
+                <select
+                  className={controlClass}
+                  value={exportSubsector}
+                  onChange={(event) => setExportSubsector(event.target.value)}
+                >
+                  <option value="">All sub-categories</option>
+                  {subsectorOptionsForSector(exportSector).map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+          </div>
+          <p className="text-xs text-zinc-500">
+            {exportSector && !exportSubsector
+              ? `Only people whose sector is ${exportSector}.`
+              : exportSector && exportSubsector
+                ? `Only ${exportSector} people assigned to ${exportSubsector}.`
+                : 'No sector filter.'}
+          </p>
           <p className="text-sm text-zinc-300">Attendance columns</p>
           <div className="flex flex-wrap gap-2">
             <Button

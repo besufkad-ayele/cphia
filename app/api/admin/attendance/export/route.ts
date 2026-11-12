@@ -32,12 +32,24 @@ function csvCell(value: string) {
   return `"${value.replace(/"/g, '""')}"`;
 }
 
+function ensureSubcategoryColumns<T extends string>(columns: T[]): T[] {
+  const required = ['health_subsectors', 'role_subsectors'] as const;
+  const next = [...columns];
+  for (const id of required) {
+    if (!next.includes(id as T)) {
+      const sectorAt = next.indexOf('sector' as T);
+      next.splice(sectorAt >= 0 ? sectorAt + 1 : next.length, 0, id as T);
+    }
+  }
+  return next;
+}
+
 function parsePersonColumns(raw: string | null): AttendancePersonColumnId[] {
   const columns = (raw ?? '')
     .split(',')
     .map((item) => item.trim())
     .filter((item): item is AttendancePersonColumnId => personAllowed.has(item));
-  return columns.length ? columns : DEFAULT_PERSON_DAY_EXPORT_COLUMNS;
+  return ensureSubcategoryColumns(columns.length ? columns : [...DEFAULT_PERSON_DAY_EXPORT_COLUMNS]);
 }
 
 export async function GET(request: NextRequest) {
@@ -139,7 +151,9 @@ export async function GET(request: NextRequest) {
       .split(',')
       .map((item) => item.trim())
       .filter((item): item is AttendanceExportColumnId => allowed.has(item));
-    const selected = columns.length ? columns : DEFAULT_ATTENDANCE_EXPORT_COLUMNS;
+    const selected = ensureSubcategoryColumns(
+      columns.length ? columns : [...DEFAULT_ATTENDANCE_EXPORT_COLUMNS],
+    );
 
     const mapped = rows.map((row) => {
       const out: Record<string, string> = {};

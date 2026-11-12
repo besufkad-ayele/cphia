@@ -334,7 +334,7 @@ export async function loadApprovedVolunteers(
       .order('first_name', { ascending: true })
       .order('last_name', { ascending: true });
 
-    // Older rows may still store "u-report"; match both canonical and raw until migrated.
+    // Sector is exact. Sub-category is applied separately via health/role_subsectors.
     if (sector) {
       const variants = sectorFilterValues(sector);
       if (variants.length === 1) query = query.eq('sector', variants[0]);

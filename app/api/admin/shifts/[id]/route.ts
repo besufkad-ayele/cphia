@@ -3,6 +3,7 @@ import type { NextRequest } from 'next/server';
 import { logActivity } from '@/app/lib/admin/activity';
 import { dbError, requireCapability } from '@/app/lib/admin/guard';
 import { isShiftKind } from '@/app/lib/admin/ops';
+import { parseShiftSectors } from '@/app/lib/admin/shift-sectors';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
 
 export const runtime = 'nodejs';
@@ -11,6 +12,12 @@ function shiftPayload(body: Record<string, unknown>) {
   const kindRaw = String(body.kind ?? 'training');
   const kind = isShiftKind(kindRaw) ? kindRaw : 'training';
   const teamId = body.teamId ? String(body.teamId) : null;
+  const { sector, sectors } = parseShiftSectors(body);
+  const blockId = body.blockId === null || body.blockId === ''
+    ? null
+    : body.blockId
+      ? String(body.blockId)
+      : undefined;
   return {
     cohort_id: String(body.cohortId ?? ''),
     name: String(body.name ?? '').trim().slice(0, 120),
@@ -18,11 +25,13 @@ function shiftPayload(body: Record<string, unknown>) {
     start_time: String(body.startTime ?? ''),
     end_time: String(body.endTime ?? ''),
     location: String(body.location ?? '').trim().slice(0, 160),
-    sector: String(body.sector ?? '').trim().slice(0, 80),
+    sector,
+    sectors,
     capacity: Math.max(0, Number(body.capacity) || 0),
     notes: String(body.notes ?? '').trim().slice(0, 1000),
     kind,
     team_id: kind === 'ops' ? teamId : null,
+    ...(blockId !== undefined ? { block_id: blockId } : {}),
   };
 }
 
