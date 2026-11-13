@@ -14,6 +14,7 @@ import {
   applyRegistrationFilters,
   fetchAllPaged,
   parseSector,
+  parseSectors,
   parseSubsector,
   sanitizeSearch,
 } from '@/app/lib/admin/registration-filters';
@@ -103,8 +104,14 @@ export async function GET(request: NextRequest) {
   const statusParam = request.nextUrl.searchParams.get('status');
   const search = sanitizeSearch(request.nextUrl.searchParams.get('search') ?? '');
   const status = statusParam && isAdminStatus(statusParam) ? statusParam : null;
-  const sector = parseSector(request.nextUrl.searchParams.get('sector'));
-  const subsector = parseSubsector(request.nextUrl.searchParams.get('subsector'));
+  const sectors = parseSectors(
+    request.nextUrl.searchParams.get('sectors'),
+    request.nextUrl.searchParams.get('sector'),
+  );
+  const sector = sectors.length === 1 ? sectors[0] : parseSector(request.nextUrl.searchParams.get('sector'));
+  const subsector = sectors.length <= 1
+    ? parseSubsector(request.nextUrl.searchParams.get('subsector'))
+    : null;
   const id = request.nextUrl.searchParams.get('id');
   const wantsAssets = selected.some((col) => assetAllowed.has(col));
 
@@ -145,7 +152,13 @@ export async function GET(request: NextRequest) {
           .from('registrations')
           .select('*, registration_languages(language, proficiency, language_group)', { count: 'exact' });
         query = applyNameSort(query as never) as typeof query;
-        query = applyRegistrationFilters(query as never, { status, search, sector, subsector }) as typeof query;
+        query = applyRegistrationFilters(query as never, {
+          status,
+          search,
+          sectors,
+          sector,
+          subsector,
+        }) as typeof query;
         return query as never;
       });
       data = paged.rows;
@@ -307,7 +320,8 @@ export async function GET(request: NextRequest) {
       format,
       rowCount,
       status,
-      sector,
+      sector: sectors.length === 1 ? sectors[0] : null,
+      sectors: sectors.length ? sectors : null,
       subsector,
       search: search || null,
       columns: selected,

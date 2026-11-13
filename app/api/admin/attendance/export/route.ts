@@ -89,6 +89,7 @@ export async function GET(request: NextRequest) {
     if (wantsPersonLayout) {
       const approvedPeople = await loadApprovedVolunteers(supabase, {
         sector: filters.sector,
+        sectors: filters.sectors,
         healthSubsector: filters.healthSubsector,
         search: filters.search,
       });
@@ -112,6 +113,7 @@ export async function GET(request: NextRequest) {
           columns: personColumns,
           status: filters.status || 'all',
           sector: filters.sector || null,
+          sectors: filters.sectors || null,
           period: filters.periods?.join(',') || null,
           blockId: params.get('blockId') || null,
           shiftId: params.get('shiftId') || null,
@@ -175,6 +177,7 @@ export async function GET(request: NextRequest) {
         columns: selected,
         status: filters.status || 'all',
         sector: filters.sector || null,
+        sectors: filters.sectors || null,
         period: filters.periods?.join(',') || null,
         blockId: params.get('blockId') || null,
         shiftId: params.get('shiftId') || null,

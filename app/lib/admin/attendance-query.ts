@@ -30,9 +30,11 @@ export type AttendanceReportFilters = {
   shiftId?: string;
   /** Multi-shift selection; when set, overrides single shiftId. */
   shiftIds?: string[];
-  /** Volunteer registration sector (exact match). */
+  /** Volunteer registration sector (exact match). Prefer `sectors` for multi. */
   sector?: string;
-  /** Health sub-sector; only meaningful with sector=Health. */
+  /** One or more volunteer sectors. Empty / omitted = all. */
+  sectors?: string[];
+  /** Health / role sub-sector; only meaningful when a single parent sector is in play. */
   healthSubsector?: string;
   /** Morning / afternoon derived from shift start_time. Empty = all. */
   periods?: AttendancePeriodFilter[];
@@ -214,10 +216,16 @@ export async function loadAttendanceRows(
     // Official attendance counts approved volunteers only.
     if (!person || person.review_status !== 'approved') continue;
 
-    if (filters.sector) {
-      const wanted = normalizeSector(filters.sector) || filters.sector;
+    const sectorWanted = (filters.sectors?.length
+      ? filters.sectors
+      : filters.sector
+        ? [filters.sector]
+        : [])
+      .map((item) => normalizeSector(item) || item)
+      .filter(Boolean);
+    if (sectorWanted.length) {
       const actual = normalizeSector(person?.sector) || person?.sector || '';
-      if (!actual || actual !== wanted) continue;
+      if (!actual || !sectorWanted.includes(actual)) continue;
     }
     if (filters.healthSubsector) {
       const column = subsectorStorageColumn(filters.healthSubsector);
@@ -320,9 +328,15 @@ function personDisplayName(person: {
  */
 export async function loadApprovedVolunteers(
   supabase: SupabaseClient,
-  filters: Pick<AttendanceReportFilters, 'sector' | 'healthSubsector' | 'search'>,
+  filters: Pick<AttendanceReportFilters, 'sector' | 'sectors' | 'healthSubsector' | 'search'>,
 ): Promise<ApprovedVolunteerSeed[]> {
-  const sector = normalizeSector(filters.sector) || filters.sector || '';
+  const sectorList = (filters.sectors?.length
+    ? filters.sectors
+    : filters.sector
+      ? [filters.sector]
+      : [])
+    .map((item) => normalizeSector(item) || item)
+    .filter(Boolean);
   const { rows: data } = await fetchAllPaged<ApprovedVolunteerSeed>(() => {
     let query = supabase
       .from('registrations')
@@ -334,9 +348,9 @@ export async function loadApprovedVolunteers(
       .order('first_name', { ascending: true })
       .order('last_name', { ascending: true });
 
-    // Sector is exact. Sub-category is applied separately via health/role_subsectors.
-    if (sector) {
-      const variants = sectorFilterValues(sector);
+    // Sector is exact. Multiple sectors use `.in(...)`. Sub-category is separate.
+    if (sectorList.length) {
+      const variants = [...new Set(sectorList.flatMap((sector) => sectorFilterValues(sector)))];
       if (variants.length === 1) query = query.eq('sector', variants[0]);
       else query = query.in('sector', variants);
     }

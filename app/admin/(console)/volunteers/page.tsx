@@ -31,6 +31,7 @@ import {
 } from '@/app/lib/admin/types';
 import { ExportColumnsDialog } from '@/components/admin/export-columns-dialog';
 import { ReviewStatusActions } from '@/components/admin/review-status-actions';
+import { SectorMultiSelect } from '@/components/admin/sector-multi-select';
 import { StatusBadge } from '@/components/admin/status-badge';
 import { SubsectorMultiSelect } from '@/components/admin/subsector-multi-select';
 import { VolunteerPreviewDialog } from '@/components/admin/volunteer-preview-dialog';
@@ -203,7 +204,9 @@ function VolunteersTable() {
     isKnownSubsector(initialSubsector) ? initialSubsector : '',
   );
   const [savingSubsectorId, setSavingSubsectorId] = useState<string | null>(null);
-  const [exportSector, setExportSector] = useState(initialSector);
+  const [exportSectors, setExportSectors] = useState<string[]>(
+    initialSector ? [initialSector] : [],
+  );
   const [exportSubsector, setExportSubsector] = useState(initialSubsector);
   const [exportStatus, setExportStatus] = useState<'all' | AdminStatus>(
     ADMIN_STATUSES.includes(initialStatus as AdminStatus) ? (initialStatus as AdminStatus) : 'all',
@@ -462,8 +465,14 @@ function VolunteersTable() {
     const params = new URLSearchParams({ columns: columns.join(','), format });
     if (exportStatus !== 'all') params.set('status', exportStatus);
     if (search.trim()) params.set('search', search.trim());
-    if (exportSector) params.set('sector', exportSector);
-    if (exportSubsector) params.set('subsector', exportSubsector);
+    if (exportSectors.length) params.set('sectors', exportSectors.join(','));
+    if (
+      exportSectors.length === 1
+      && sectorHasSubsectors(exportSectors[0])
+      && exportSubsector
+    ) {
+      params.set('subsector', exportSubsector);
+    }
     if (includeAttendance) {
       params.set('includeAttendance', '1');
       params.set('blockIds', exportBlockIds.join(','));
@@ -500,10 +509,12 @@ function VolunteersTable() {
   const exportScopeNote = useMemo(() => {
     const parts: string[] = [];
     parts.push(exportStatus === 'all' ? 'All statuses' : `Status: ${exportStatus}`);
-    if (exportSector && exportSubsector) {
-      parts.push(`${exportSector} · ${exportSubsector}`);
-    } else if (exportSector) {
-      parts.push(`Sector: ${exportSector}`);
+    if (exportSectors.length === 1 && exportSubsector) {
+      parts.push(`${exportSectors[0]} · ${exportSubsector}`);
+    } else if (exportSectors.length === 1) {
+      parts.push(`Sector: ${exportSectors[0]}`);
+    } else if (exportSectors.length > 1) {
+      parts.push(`${exportSectors.length} sectors: ${exportSectors.join(', ')}`);
     } else {
       parts.push('All sectors');
     }
@@ -523,7 +534,7 @@ function VolunteersTable() {
     return parts.join(' · ');
   }, [
     exportStatus,
-    exportSector,
+    exportSectors,
     exportSubsector,
     search,
     includeAttendance,
@@ -581,7 +592,7 @@ function VolunteersTable() {
                 setIncludeAttendance(false);
                 setIncludeDayColumns(false);
                 setExportBlockIds([]);
-                setExportSector(sector);
+                setExportSectors(sector ? [sector] : []);
                 setExportSubsector(subsector);
                 setExportStatus(status);
                 setExportOpen(true);
@@ -947,7 +958,7 @@ function VolunteersTable() {
             <p className="text-sm font-medium">Who to include</p>
             <p className="text-xs text-muted-foreground">Status and sector apply to the download, not only the table view.</p>
           </div>
-          <div className={`grid gap-3 ${sectorHasSubsectors(exportSector) ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
+          <div className="grid gap-3 sm:grid-cols-2">
             <label className="grid gap-1.5 text-sm">
               <span className="text-muted-foreground">Status</span>
               <select
@@ -961,41 +972,42 @@ function VolunteersTable() {
                 ))}
               </select>
             </label>
-            <label className="grid gap-1.5 text-sm">
-              <span className="text-muted-foreground">Sector</span>
-              <select
-                className="h-11 rounded-md border border-input bg-background px-3 text-sm"
-                value={exportSector}
-                onChange={(event) => {
-                  const next = event.target.value;
-                  setExportSector(next);
-                  if (!sectorHasSubsectors(next)) setExportSubsector('');
-                  else if (exportSubsector && !subsectorOptionsForSector(next).includes(exportSubsector)) {
-                    setExportSubsector('');
-                  }
-                }}
-              >
-                <option value="">All sectors</option>
-                {SECTORS.map((option) => (
-                  <option key={option} value={option}>{option}</option>
-                ))}
-              </select>
-            </label>
-            {sectorHasSubsectors(exportSector) ? (
+            {exportSectors.length === 1 && sectorHasSubsectors(exportSectors[0]) ? (
               <label className="grid gap-1.5 text-sm">
-                <span className="text-muted-foreground">{subsectorLabelForSector(exportSector)}</span>
+                <span className="text-muted-foreground">{subsectorLabelForSector(exportSectors[0])}</span>
                 <select
                   className="h-11 rounded-md border border-input bg-background px-3 text-sm"
                   value={exportSubsector}
                   onChange={(event) => setExportSubsector(event.target.value)}
                 >
                   <option value="">All sub-categories</option>
-                  {subsectorOptionsForSector(exportSector).map((option) => (
+                  {subsectorOptionsForSector(exportSectors[0]).map((option) => (
                     <option key={option} value={option}>{option}</option>
                   ))}
                 </select>
               </label>
             ) : null}
+          </div>
+          <div className="grid gap-1.5">
+            <span className="text-sm text-muted-foreground">Sectors</span>
+            <SectorMultiSelect
+              dense
+              value={exportSectors}
+              onChange={(next) => {
+                setExportSectors(next);
+                if (next.length !== 1 || !sectorHasSubsectors(next[0])) {
+                  setExportSubsector('');
+                } else if (
+                  exportSubsector
+                  && !subsectorOptionsForSector(next[0]).includes(exportSubsector)
+                ) {
+                  setExportSubsector('');
+                }
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              Leave empty for all sectors, or tick Health + Tourism (etc.) to download only those.
+            </p>
           </div>
         </section>
 
