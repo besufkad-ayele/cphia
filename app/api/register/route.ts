@@ -8,6 +8,7 @@ import {
   mapRpcFailure,
   messageForRegisterCode,
 } from '@/app/lib/registration-errors';
+import { isRegistrationOpen } from '@/app/lib/registration-open';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
 import { extensionForMime, uploadVolunteerPhoto } from '@/app/lib/storage/volunteer-photos';
 
@@ -116,6 +117,10 @@ function parseJsonField(raw: FormDataEntryValue, field: string) {
 }
 
 export async function POST(request: NextRequest) {
+  if (!isRegistrationOpen()) {
+    return jsonError('REGISTRATION_CLOSED', 403);
+  }
+
   try {
     let formData: FormData;
     try {

@@ -14,6 +14,9 @@ type CphiaLogoProps = {
    * When set, the logo is a link (e.g. admin dashboard `/admin`, public home `/`).
    */
   href?: string | Route;
+  /**
+   * Above-the-fold / LCP logos. Next.js 16 wants `loading="eager"` (not deprecated `priority`).
+   */
   priority?: boolean;
   onClick?: () => void;
   alt?: string;
@@ -34,7 +37,11 @@ export function CphiaLogo({
       alt={alt}
       width={mark ? 120 : 420}
       height={mark ? 120 : 140}
-      priority={priority}
+      // Serve the public file directly (already small) — skips /_next/image round-trip for LCP.
+      unoptimized
+      loading={priority ? 'eager' : 'lazy'}
+      fetchPriority={priority ? 'high' : 'auto'}
+      decoding={priority ? 'sync' : 'async'}
       className={cn(
         mark
           ? 'size-10 object-contain'

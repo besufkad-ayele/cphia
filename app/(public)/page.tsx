@@ -25,6 +25,9 @@ import {
   consumePublicFirstTransition,
   requestBrandTransition,
 } from '@/app/lib/brand-transition';
+import { isRegistrationOpen } from '@/app/lib/registration-open';
+
+const registrationOpen = isRegistrationOpen();
 
 const highlights = [
   { icon: Calendar, label: 'November 23–27, 2026' },
@@ -177,7 +180,9 @@ export default function PublicHomePage() {
 
   const goToRegister = useCallback(() => {
     if (consumePublicFirstTransition()) {
-      requestBrandTransition({ label: 'Opening registration' });
+      requestBrandTransition({
+        label: registrationOpen ? 'Opening registration' : 'Registration closed',
+      });
     }
     router.push('/register');
   }, [router]);
@@ -223,18 +228,21 @@ export default function PublicHomePage() {
         <header className="flex shrink-0 items-center justify-between gap-3">
           <CphiaLogo
             href="/"
+            priority
             className="h-10 w-auto max-w-[170px] object-contain object-left sm:h-12 sm:max-w-[240px]"
           />
           <Link
             href="/register"
             onClick={() => {
               if (consumePublicFirstTransition()) {
-                requestBrandTransition({ label: 'Opening registration' });
+                requestBrandTransition({
+                  label: registrationOpen ? 'Opening registration' : 'Registration closed',
+                });
               }
             }}
             className="inline-flex h-11 shrink-0 items-center gap-2 rounded-lg bg-white/15 px-4 text-sm font-semibold text-white ring-1 ring-white/35 backdrop-blur-md hover:bg-white/25"
           >
-            Register
+            {registrationOpen ? 'Register' : 'Status'}
             <ArrowRight className="size-4" />
           </Link>
         </header>
@@ -255,7 +263,9 @@ export default function PublicHomePage() {
                 Volunteer at CPHIA 2026 in Addis Ababa
               </h1>
               <p className="mt-4 max-w-2xl text-base leading-7 text-white/85 sm:text-lg">
-                Join Africa CDC and the Government of Ethiopia in welcoming 30,000+ health leaders. Register once, on this device, for the CPHIA-26 volunteer cohort.
+                {registrationOpen
+                  ? 'Join Africa CDC and the Government of Ethiopia in welcoming 30,000+ health leaders. Register once, on this device, for the CPHIA-26 volunteer cohort.'
+                  : 'Join Africa CDC and the Government of Ethiopia in welcoming 30,000+ health leaders. Volunteer registration for this intake is now closed.'}
               </p>
               <div className="mt-5 flex flex-wrap gap-2">
                 {highlights.map((item) => {
@@ -331,11 +341,20 @@ export default function PublicHomePage() {
               </div>
             </section>
 
-            <section className="flex h-full w-full shrink-0 flex-col items-center justify-center overflow-y-auto px-2 text-center" aria-label="Start your application">
+            <section
+              className="flex h-full w-full shrink-0 flex-col items-center justify-center overflow-y-auto px-2 text-center"
+              aria-label={registrationOpen ? 'Start your application' : 'Registration closed'}
+            >
               <p className="text-xs font-semibold tracking-[0.18em] text-[#F5C518] uppercase">CPHIA 2026 volunteers</p>
-              <h2 className="mt-3 max-w-3xl text-3xl font-semibold tracking-tight sm:text-5xl">Ready to represent Ethiopia and the continent?</h2>
+              <h2 className="mt-3 max-w-3xl text-3xl font-semibold tracking-tight sm:text-5xl">
+                {registrationOpen
+                  ? 'Ready to represent Ethiopia and the continent?'
+                  : 'Registration is closed'}
+              </h2>
               <p className="mt-4 max-w-2xl text-base leading-7 text-white/85 sm:text-lg">
-                Applications close soon. Slide below to continue to registration for the CPHIA-26 volunteer cohort.
+                {registrationOpen
+                  ? 'Applications close soon. Slide below to continue to registration for the CPHIA-26 volunteer cohort.'
+                  : 'We are no longer accepting new volunteer applications. Already registered on this device? Open status to view your ID.'}
               </p>
             </section>
           </div>
@@ -355,7 +374,18 @@ export default function PublicHomePage() {
             ))}
           </div>
           {last ? (
-            <SlideToAction label="Slide to start your application" onComplete={goToRegister} />
+            registrationOpen ? (
+              <SlideToAction label="Slide to start your application" onComplete={goToRegister} />
+            ) : (
+              <button
+                type="button"
+                onClick={goToRegister}
+                className="inline-flex h-14 w-full items-center justify-center gap-2 rounded-full border border-white/30 bg-white/10 text-sm font-semibold text-white backdrop-blur-md hover:bg-white/15"
+              >
+                View registration status
+                <ArrowRight className="size-4" />
+              </button>
+            )
           ) : (
             <div className="flex items-center justify-between gap-3">
               <button

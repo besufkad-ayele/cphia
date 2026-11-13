@@ -150,15 +150,6 @@ export default function ShiftsPage() {
   const [selectedSlots, setSelectedSlots] = useState<string[]>([]);
   const [editing, setEditing] = useState<string | null>(null);
   const [editingBlockId, setEditingBlockId] = useState<string | null>(null);
-  const [blockDraft, setBlockDraft] = useState({
-    name: '',
-    location: '',
-    capacity: '0',
-    notes: '',
-    startDate: '',
-    endDate: '',
-    applyToShifts: true,
-  });
   const [appendBlockId, setAppendBlockId] = useState<string | null>(null);
   const [append, setAppend] = useState({
     startDate: '',
@@ -382,30 +373,51 @@ export default function ShiftsPage() {
         }),
       });
       toast.success(`Created 1 block with ${payload.created} selected shifts.`);
-      setSelectedSlots([]);
+      resetBulkForm({
+        cohortId: bulk.cohortId,
+        kind: bulk.kind,
+        teamId: bulk.kind === 'ops' ? bulk.teamId : '',
+      });
       await load();
     } catch (reason) {
       toast.error(reason instanceof Error ? reason.message : 'Could not create the shift block.');
     }
   }
 
+  function resetBulkForm(overrides?: Partial<typeof emptyBulk>) {
+    setBulk({
+      ...emptyBulk,
+      cohortId: cohorts[0]?.id || teams[0]?.cohort_id || '',
+      kind: scoped ? 'ops' : 'training',
+      teamId: scoped ? teams[0]?.id || '' : '',
+      ...overrides,
+    });
+    setSelectedSlots([]);
+    setEditingBlockId(null);
+  }
+
   async function saveBlockEdit() {
     if (!editingBlockId) return;
+    if (!bulk.blockName.trim()) {
+      toast.error('Block name is required.');
+      return;
+    }
     try {
       await adminFetch(`/api/admin/shifts/blocks/${editingBlockId}`, {
         method: 'PATCH',
         body: JSON.stringify({
-          name: blockDraft.name,
-          location: blockDraft.location,
-          capacity: Number(blockDraft.capacity) || 0,
-          notes: blockDraft.notes,
-          startDate: blockDraft.startDate,
-          endDate: blockDraft.endDate,
-          applyToShifts: blockDraft.applyToShifts,
+          name: bulk.blockName,
+          location: bulk.location,
+          capacity: Number(bulk.capacity) || 0,
+          notes: bulk.notes,
+          startDate: bulk.startDate,
+          endDate: bulk.endDate,
+          sectors: bulk.sectors,
+          applyToShifts: true,
         }),
       });
       toast.success('Bulk block updated.');
-      setEditingBlockId(null);
+      resetBulkForm();
       await load();
     } catch (reason) {
       toast.error(reason instanceof Error ? reason.message : 'Could not update the block.');
@@ -508,22 +520,74 @@ export default function ShiftsPage() {
   }
 
   function startEditBlock(block: Block) {
-    setEditingBlockId(block.id);
+    const blockShifts = shifts.filter((shift) => shift.block_id === block.id);
+    const sectorSet = new Set<string>();
+    for (const shift of blockShifts) {
+      if (shift.sectors?.length) {
+        for (const sector of shift.sectors) sectorSet.add(sector);
+      } else if (shift.sector) {
+        for (const part of shift.sector.split(',')) {
+          const trimmed = part.trim();
+          if (trimmed) sectorSet.add(trimmed);
+        }
+      }
+    }
+
+    let morning = false;
+    let afternoon = false;
+    let morningStart = emptyBulk.morningStart;
+    let morningEnd = emptyBulk.morningEnd;
+    let afternoonStart = emptyBulk.afternoonStart;
+    let afternoonEnd = emptyBulk.afternoonEnd;
+    for (const shift of blockShifts) {
+      const start = String(shift.start_time).slice(0, 5);
+      const end = String(shift.end_time).slice(0, 5);
+      if (start < '12:00') {
+        morning = true;
+        morningStart = start;
+        morningEnd = end;
+      } else {
+        afternoon = true;
+        afternoonStart = start;
+        afternoonEnd = end;
+      }
+    }
+
     setAppendBlockId(null);
-    setBlockDraft({
-      name: block.name,
-      location: block.location,
-      capacity: String(block.capacity),
-      notes: block.notes,
-      startDate: block.start_date,
-      endDate: block.end_date,
-      applyToShifts: true,
+    setEditing(null);
+    setEditingBlockId(block.id);
+    setBulk({
+      cohortId: block.cohort_id || cohorts[0]?.id || '',
+      kind: block.kind || 'training',
+      teamId: block.team_id || '',
+      blockName: block.name,
+      startDate: block.start_date || '',
+      endDate: block.end_date || '',
+      location: block.location || '',
+      sectors: [...sectorSet],
+      capacity: String(block.capacity ?? 0),
+      notes: block.notes || '',
+      morning: morning || (!morning && !afternoon),
+      afternoon,
+      morningStart,
+      morningEnd,
+      afternoonStart,
+      afternoonEnd,
     });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function cancelBlockEdit() {
+    resetBulkForm();
   }
 
   function startAppend(block: Block) {
+    if (editingBlockId) resetBulkForm({
+      cohortId: bulk.cohortId,
+      kind: bulk.kind,
+      teamId: bulk.teamId,
+    });
     setAppendBlockId(block.id);
-    setEditingBlockId(null);
     setAppend({
       startDate: block.end_date || '',
       endDate: block.end_date || '',
@@ -586,12 +650,17 @@ export default function ShiftsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>1 · Create one bulk block</CardTitle>
+          <CardTitle>{editingBlockId ? 'Edit bulk block' : '1 · Create one bulk block'}</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           {!scoped ? (
             <Field label="Event / cohort">
-              <select className={controlClass} value={bulk.cohortId} onChange={(event) => setBulk({ ...bulk, cohortId: event.target.value, teamId: '' })}>
+              <select
+                className={controlClass}
+                value={bulk.cohortId}
+                disabled={Boolean(editingBlockId)}
+                onChange={(event) => setBulk({ ...bulk, cohortId: event.target.value, teamId: '' })}
+              >
                 {cohorts.map((cohort) => <option key={cohort.id} value={cohort.id}>{cohort.code} · {cohort.name}</option>)}
               </select>
             </Field>
@@ -600,7 +669,7 @@ export default function ShiftsPage() {
             <select
               className={controlClass}
               value={bulk.kind}
-              disabled={scoped}
+              disabled={scoped || Boolean(editingBlockId)}
               onChange={(event) => setBulk({ ...bulk, kind: event.target.value, teamId: event.target.value === 'ops' ? bulk.teamId : '' })}
             >
               {SHIFT_KINDS.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
@@ -608,13 +677,18 @@ export default function ShiftsPage() {
           </Field>
           {bulk.kind === 'ops' ? (
             <Field label="Floor team">
-              <select className={controlClass} value={bulk.teamId} onChange={(event) => setBulk({ ...bulk, teamId: event.target.value })}>
+              <select
+                className={controlClass}
+                value={bulk.teamId}
+                disabled={Boolean(editingBlockId)}
+                onChange={(event) => setBulk({ ...bulk, teamId: event.target.value })}
+              >
                 <option value="">Select team</option>
                 {bulkTeams.map((team) => <option key={team.id} value={team.id}>{team.name}{team.code ? ` · ${team.code}` : ''}</option>)}
               </select>
             </Field>
           ) : null}
-          <Field label="Block name (optional)">
+          <Field label={editingBlockId ? 'Block name' : 'Block name (optional)'}>
             <input
               className={controlClass}
               value={bulk.blockName}
@@ -633,93 +707,125 @@ export default function ShiftsPage() {
           </div>
           <div className="md:col-span-2 xl:col-span-4 grid gap-3 sm:grid-cols-2">
             <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/25 px-3 py-3 text-sm">
-              <input type="checkbox" checked={bulk.morning} onChange={(event) => setBulk({ ...bulk, morning: event.target.checked })} />
+              <input
+                type="checkbox"
+                checked={bulk.morning}
+                disabled={Boolean(editingBlockId)}
+                onChange={(event) => setBulk({ ...bulk, morning: event.target.checked })}
+              />
               Offer morning · {bulk.morningStart}–{bulk.morningEnd}
             </label>
             <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/25 px-3 py-3 text-sm">
-              <input type="checkbox" checked={bulk.afternoon} onChange={(event) => setBulk({ ...bulk, afternoon: event.target.checked })} />
+              <input
+                type="checkbox"
+                checked={bulk.afternoon}
+                disabled={Boolean(editingBlockId)}
+                onChange={(event) => setBulk({ ...bulk, afternoon: event.target.checked })}
+              />
               Offer afternoon · {bulk.afternoonStart}–{bulk.afternoonEnd}
             </label>
           </div>
-          {bulk.morning ? (
+          {bulk.morning && !editingBlockId ? (
             <>
               <Field label="Morning starts"><input className={controlClass} type="time" value={bulk.morningStart} onChange={(event) => setBulk({ ...bulk, morningStart: event.target.value })} /></Field>
               <Field label="Morning ends"><input className={controlClass} type="time" value={bulk.morningEnd} onChange={(event) => setBulk({ ...bulk, morningEnd: event.target.value })} /></Field>
             </>
           ) : null}
-          {bulk.afternoon ? (
+          {bulk.afternoon && !editingBlockId ? (
             <>
               <Field label="Afternoon starts"><input className={controlClass} type="time" value={bulk.afternoonStart} onChange={(event) => setBulk({ ...bulk, afternoonStart: event.target.value })} /></Field>
               <Field label="Afternoon ends"><input className={controlClass} type="time" value={bulk.afternoonEnd} onChange={(event) => setBulk({ ...bulk, afternoonEnd: event.target.value })} /></Field>
             </>
           ) : null}
           <div className="md:col-span-2 xl:col-span-4">
-            <Field label="Notes (applied to every selected shift)"><input className={controlClass} value={bulk.notes} onChange={(event) => setBulk({ ...bulk, notes: event.target.value })} /></Field>
+            <Field label={editingBlockId ? 'Notes (also applied to shifts in this block)' : 'Notes (applied to every selected shift)'}>
+              <input className={controlClass} value={bulk.notes} onChange={(event) => setBulk({ ...bulk, notes: event.target.value })} />
+            </Field>
           </div>
 
-          <div className="md:col-span-2 xl:col-span-4 rounded-2xl border border-white/10 bg-black/20 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-medium text-white">2 · Select individual shifts</p>
-                <p className="text-xs text-zinc-400">
-                  One block will be created. Tick only the day · period shifts you need
-                  {candidateSlots.length ? ` · ${selectedCount} of ${candidateSlots.length} selected` : ''}.
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="outline" size="sm" disabled={!candidateSlots.length} onClick={() => setSelectedSlots(candidateSlots.map(slotKey))}>
-                  Select all
-                </Button>
-                <Button type="button" variant="ghost" size="sm" disabled={!selectedCount} onClick={() => setSelectedSlots([])}>
-                  Clear
-                </Button>
-              </div>
-            </div>
-
-            {!candidateSlots.length ? (
-              <p className="mt-4 text-sm text-zinc-500">
-                Choose from / to dates and enable morning and/or afternoon to list selectable shifts.
+          {editingBlockId ? (
+            <div className="md:col-span-2 xl:col-span-4 rounded-2xl border border-[#e7c15a]/30 bg-[#e7c15a]/5 p-4">
+              <p className="text-sm text-zinc-300">
+                Saving updates the block name, dates, location, capacity, notes, and sectors on every shift in this block.
+                Morning/afternoon times are shown for reference — use <span className="text-white">Add shifts</span> on the block to create more slots.
               </p>
-            ) : (
-              <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                {candidateSlots.map((slot) => {
-                  const key = slotKey(slot);
-                  const checked = selectedSlots.includes(key);
-                  const time =
-                    slot.period === 'morning'
-                      ? `${bulk.morningStart}–${bulk.morningEnd}`
-                      : `${bulk.afternoonStart}–${bulk.afternoonEnd}`;
-                  return (
-                    <label
-                      key={key}
-                      className={cn(
-                        'flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 text-sm transition',
-                        checked
-                          ? 'border-[#e7c15a]/45 bg-[#e7c15a]/10 text-white'
-                          : 'border-white/10 bg-black/25 text-zinc-300 hover:border-white/20',
-                      )}
-                    >
-                      <input
-                        type="checkbox"
-                        className="mt-1"
-                        checked={checked}
-                        onChange={() => toggleSlot(key)}
-                      />
-                      <span className="min-w-0">
-                        <span className="block font-medium">{periodLabel(slot.period)} · {slot.date}</span>
-                        <span className="block text-xs text-zinc-400">{time}</span>
-                      </span>
-                    </label>
-                  );
-                })}
+            </div>
+          ) : (
+            <div className="md:col-span-2 xl:col-span-4 rounded-2xl border border-white/10 bg-black/20 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-white">2 · Select individual shifts</p>
+                  <p className="text-xs text-zinc-400">
+                    One block will be created. Tick only the day · period shifts you need
+                    {candidateSlots.length ? ` · ${selectedCount} of ${candidateSlots.length} selected` : ''}.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" size="sm" disabled={!candidateSlots.length} onClick={() => setSelectedSlots(candidateSlots.map(slotKey))}>
+                    Select all
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" disabled={!selectedCount} onClick={() => setSelectedSlots([])}>
+                    Clear
+                  </Button>
+                </div>
               </div>
-            )}
-          </div>
 
-          <div className="md:col-span-2 xl:col-span-4">
-            <Button className="h-11" disabled={!selectedCount} onClick={() => void saveBulk()}>
-              Create block with {selectedCount || 0} selected shift{selectedCount === 1 ? '' : 's'}
-            </Button>
+              {!candidateSlots.length ? (
+                <p className="mt-4 text-sm text-zinc-500">
+                  Choose from / to dates and enable morning and/or afternoon to list selectable shifts.
+                </p>
+              ) : (
+                <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                  {candidateSlots.map((slot) => {
+                    const key = slotKey(slot);
+                    const checked = selectedSlots.includes(key);
+                    const time =
+                      slot.period === 'morning'
+                        ? `${bulk.morningStart}–${bulk.morningEnd}`
+                        : `${bulk.afternoonStart}–${bulk.afternoonEnd}`;
+                    return (
+                      <label
+                        key={key}
+                        className={cn(
+                          'flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 text-sm transition',
+                          checked
+                            ? 'border-[#e7c15a]/45 bg-[#e7c15a]/10 text-white'
+                            : 'border-white/10 bg-black/25 text-zinc-300 hover:border-white/20',
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          className="mt-1"
+                          checked={checked}
+                          onChange={() => toggleSlot(key)}
+                        />
+                        <span className="min-w-0">
+                          <span className="block font-medium">{periodLabel(slot.period)} · {slot.date}</span>
+                          <span className="block text-xs text-zinc-400">{time}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-2 md:col-span-2 xl:col-span-4">
+            {editingBlockId ? (
+              <>
+                <Button className="h-11" onClick={() => void saveBlockEdit()}>
+                  Save block
+                </Button>
+                <Button variant="outline" className="h-11" onClick={cancelBlockEdit}>
+                  Cancel
+                </Button>
+              </>
+            ) : (
+              <Button className="h-11" disabled={!selectedCount} onClick={() => void saveBulk()}>
+                Create block with {selectedCount || 0} selected shift{selectedCount === 1 ? '' : 's'}
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -810,7 +916,14 @@ export default function ShiftsPage() {
               </div>
               <div className="flex flex-wrap gap-2">
                 {canEdit ? (
-                  <Button variant="outline" size="sm" onClick={() => startEditBlock(block)}>Edit block</Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => startEditBlock(block)}
+                    className={editingBlockId === block.id ? 'border-[#e7c15a]/50 text-[#e7c15a]' : undefined}
+                  >
+                    {editingBlockId === block.id ? 'Editing…' : 'Edit block'}
+                  </Button>
                 ) : null}
                 {canCreate ? (
                   <Button variant="outline" size="sm" onClick={() => startAppend(block)}>Add shifts</Button>
@@ -828,41 +941,6 @@ export default function ShiftsPage() {
               </div>
             </CardHeader>
             <CardContent className="grid gap-3">
-              {editingBlockId === block.id ? (
-                <div className="grid gap-3 rounded-2xl border border-[#e7c15a]/30 bg-[#e7c15a]/5 p-4 md:grid-cols-2">
-                  <Field label="Block name">
-                    <input className={controlClass} value={blockDraft.name} onChange={(event) => setBlockDraft({ ...blockDraft, name: event.target.value })} />
-                  </Field>
-                  <Field label="Location">
-                    <input className={controlClass} value={blockDraft.location} onChange={(event) => setBlockDraft({ ...blockDraft, location: event.target.value })} />
-                  </Field>
-                  <Field label="From date">
-                    <input className={controlClass} type="date" value={blockDraft.startDate} onChange={(event) => setBlockDraft({ ...blockDraft, startDate: event.target.value })} />
-                  </Field>
-                  <Field label="To date">
-                    <input className={controlClass} type="date" value={blockDraft.endDate} onChange={(event) => setBlockDraft({ ...blockDraft, endDate: event.target.value })} />
-                  </Field>
-                  <Field label="Capacity">
-                    <input className={controlClass} type="number" min={0} value={blockDraft.capacity} onChange={(event) => setBlockDraft({ ...blockDraft, capacity: event.target.value })} />
-                  </Field>
-                  <Field label="Notes">
-                    <input className={controlClass} value={blockDraft.notes} onChange={(event) => setBlockDraft({ ...blockDraft, notes: event.target.value })} />
-                  </Field>
-                  <label className="flex items-center gap-2 text-sm text-zinc-300 md:col-span-2">
-                    <input
-                      type="checkbox"
-                      checked={blockDraft.applyToShifts}
-                      onChange={(event) => setBlockDraft({ ...blockDraft, applyToShifts: event.target.checked })}
-                    />
-                    Also update location / capacity / notes on every shift in this block
-                  </label>
-                  <div className="flex gap-2 md:col-span-2">
-                    <Button onClick={() => void saveBlockEdit()}>Save block</Button>
-                    <Button variant="outline" onClick={() => setEditingBlockId(null)}>Cancel</Button>
-                  </div>
-                </div>
-              ) : null}
-
               {appendBlockId === block.id ? (
                 <div className="grid gap-3 rounded-2xl border border-white/15 bg-black/30 p-4 md:grid-cols-2 xl:grid-cols-4">
                   <Field label="From date">

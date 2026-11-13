@@ -6,6 +6,8 @@ import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Skeleton } from '@/components/ui/skeleton';
 import { VolunteerIdCard } from '@/components/register/volunteer-id-card';
+import { isRegistrationOpen } from '@/app/lib/registration-open';
+import { RegistrationClosed } from './components/registration-closed';
 import {
   AppShell,
   ConfirmDialog,
@@ -26,6 +28,8 @@ import { badgeFromForm } from './steps/ReviewStep';
 import { useDraft, SESSION_KEY, STORAGE_KEY, SUBMITTED_KEY } from './hooks/useDraft';
 import { useStepValidation } from './hooks/useStepValidation';
 import type { LanguageRow, RegisterFormValues, StoredPhoto } from './types';
+
+const registrationOpen = isRegistrationOpen();
 
 function createLanguageRows(): LanguageRow[] {
   return [
@@ -227,6 +231,11 @@ function RegisterScreen() {
 
   const submit = async () => {
     if (isSubmitting) return;
+    if (!registrationOpen) {
+      setShowConfirm(false);
+      setServerError(t('closed.title'));
+      return;
+    }
     setServerError(null);
 
     if (!photo) {
@@ -356,6 +365,12 @@ function RegisterScreen() {
         <Skeleton className="h-16 w-full" />
         <Skeleton className="h-96 w-full" />
       </main>
+    );
+  }
+
+  if (!registrationOpen && !submittedId) {
+    return (
+      <RegistrationClosed locale={locale} onLocaleChange={setLocaleAndForm} />
     );
   }
 

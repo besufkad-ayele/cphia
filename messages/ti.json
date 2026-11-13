@@ -32,6 +32,13 @@
     "reviewIdPreview": "ቅድመ ምርኢት መታወቂያ",
     "editSection": "ኣርትዕ",
     "alreadyRegistered": "ቅድሚ ሕጂ ተመዝጊብኩም ኢኹም",
+    "closed": {
+      "kicker": "ናይ CPHIA ፈቃደኛታት",
+      "title": "ምዝገባ ተዓጽዩ",
+      "body": "ንዚ ዙር ሓድሽ ናይ ፈቃደኛ ማመልከቻ ኣይንቕበልን።",
+      "registeredHint": "ኣብዚ መሳርሒ ቅድሚ ሕጂ ተመዝጊብኩም ዲኹም? መታወቂያኹም ኣብዚ ክርኣይ ይቅጽል።",
+      "homeCta": "ናብ መእተዊ ተመለስ"
+    },
     "registrationId": "መለለዪ ምዝገባ",
     "copy": "ቅዳሕ",
     "saveImage": "ከም ስእሊ ኣቐምጥ",

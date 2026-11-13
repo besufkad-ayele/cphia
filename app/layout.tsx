@@ -20,7 +20,7 @@ const roboto = Roboto({
 
 export const metadata: Metadata = {
   title: 'CPHIA Volunteer Registration',
-  description: 'Facility Volunteer Training registration system',
+  description: 'CPHIA Facility Volunteer Training — registration is closed for this intake.',
   icons: {
     icon: '/cphia-africa-logo.png',
     apple: '/cphia-2026-logo.png',

@@ -32,6 +32,13 @@
     "reviewIdPreview": "Event ID preview",
     "editSection": "Edit",
     "alreadyRegistered": "You already registered",
+    "closed": {
+      "kicker": "CPHIA Facility Volunteers",
+      "title": "Registration is closed",
+      "body": "We are no longer accepting new volunteer applications for this intake.",
+      "registeredHint": "Already registered on this device? Your volunteer ID will still open here.",
+      "homeCta": "Back to home"
+    },
     "registrationId": "Registration ID",
     "copy": "Copy",
     "saveImage": "Save as image",

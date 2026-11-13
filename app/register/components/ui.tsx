@@ -60,6 +60,7 @@ export function AppShell({
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-3 py-3 md:px-6 lg:px-10">
           <CphiaLogo
             href="/"
+            priority
             className="h-9 w-auto max-w-[108px] object-contain object-left sm:h-11 sm:max-w-[200px]"
           />
           {progress ? <HeaderProgress step={progress.step} titles={progress.titles} /> : <div className="flex-1" />}

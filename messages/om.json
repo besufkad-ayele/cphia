@@ -32,6 +32,13 @@
     "reviewIdPreview": "Durargii ID",
     "editSection": "Gulaali",
     "alreadyRegistered": "Duraan galmoofteetta",
+    "closed": {
+      "kicker": "Fedhii-tootota CPHIA",
+      "title": "Galmeen cufameera",
+      "body": "Yeroo kanaaf galmee fedhii-tootaa haaraa fudhachuu dhiifneerra.",
+      "registeredHint": "Meeshaa kana irratti duraan galmooftee? ID kee asitti ni argama.",
+      "homeCta": "Gara manaatti deebi'i"
+    },
     "registrationId": "Lakkoofsa galmee",
     "copy": "Koppii",
     "saveImage": "Akka suuraa olkaa'i",

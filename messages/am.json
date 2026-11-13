@@ -32,6 +32,13 @@
     "reviewIdPreview": "የዝግጅት መታወቂያ ቅድመ እይታ",
     "editSection": "አርትዕ",
     "alreadyRegistered": "አስቀድመው ተመዝግበዋል",
+    "closed": {
+      "kicker": "የCPHIA የጤና ተቋም በጎ ፈቃደኞች",
+      "title": "ምዝገባ ተዘግቷል",
+      "body": "ለዚህ ዙር አዲስ የበጎ ፈቃደኛ ማመልከቻ አንቀበልም።",
+      "registeredHint": "በዚህ መሣሪያ አስቀድመው ተመዝግበዋል? የበጎ ፈቃደኛ መታወቂያዎ እዚህ ይቀጥላል።",
+      "homeCta": "ወደ መነሻ ተመለስ"
+    },
     "registrationId": "የምዝገባ መለያ",
     "copy": "ቅዳ",
     "saveImage": "እንደ ምስል አስቀምጥ",

@@ -20,6 +20,7 @@ export const REGISTER_ERROR_MESSAGES: Record<string, string> = {
   BODY_TOO_LARGE: `The upload is too large. Keep each file under ${MAX_UPLOAD_LABEL} and try again.`,
   NETWORK: 'Network problem while submitting. Check your connection and try again. Your draft is saved on this device.',
   TIMEOUT: 'The request took too long. Please try again.',
+  REGISTRATION_CLOSED: 'Volunteer registration is closed. New applications are no longer accepted.',
   REGISTRATION_FAILED: 'Registration could not be completed. Please try again. If it keeps failing, contact support.',
 };
 
