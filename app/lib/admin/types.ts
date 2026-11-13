@@ -158,6 +158,24 @@ export const EXPORT_COLUMNS = [
   { id: 'created_at', label: 'Submitted' },
 ] as const;
 
+/**
+ * Short identity set used when exporting with shift attendance
+ * so the score columns stay readable.
+ */
+export const EXPORT_ATTENDANCE_LEAN_COLUMNS = [
+  'registration_id',
+  'first_name',
+  'middle_name',
+  'last_name',
+  'phone',
+  'email',
+  'sector',
+  'health_subsectors',
+  'role_subsectors',
+  'review_status',
+  'cohort',
+] as const satisfies ReadonlyArray<(typeof EXPORT_COLUMNS)[number]['id']>;
+
 /** Signed asset URL columns — export UI + API for super admins only. */
 export const EXPORT_ASSET_COLUMNS = [
   { id: 'photo_url', label: 'Volunteer photo URL', pathKey: 'photo_path' },

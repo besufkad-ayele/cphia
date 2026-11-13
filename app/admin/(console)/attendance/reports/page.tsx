@@ -18,6 +18,7 @@ import {
   DEFAULT_PERSON_DAY_EXPORT_COLUMNS,
   sheetStatusLabel,
 } from '@/app/lib/admin/attendance-columns';
+import { downloadExportResponse, readExportError } from '@/app/lib/admin/download-export';
 import { adminFetch } from '@/app/lib/admin/messages';
 import { Banner, controlClass, Field, PageHeader } from '@/components/admin/console';
 import { ExportColumnsDialog } from '@/components/admin/export-columns-dialog';
@@ -600,7 +601,7 @@ function AttendanceReportsPageInner() {
     setExportOpen(true);
   }
 
-  function runExport(format: 'csv' | 'xlsx') {
+  async function runExport(format: 'csv' | 'xlsx') {
     const params = new URLSearchParams({
       format,
       columns: selectedColumns.join(','),
@@ -619,7 +620,18 @@ function AttendanceReportsPageInner() {
     if (sectorHasSubsectors(exportSector) && exportSubsector) params.set('subsector', exportSubsector);
     if (filters.search.trim()) params.set('q', filters.search.trim());
     if (!filters.includePending) params.set('verifiedOnly', '1');
-    window.location.href = `/api/admin/attendance/export?${params.toString()}`;
+
+    const response = await fetch(`/api/admin/attendance/export?${params.toString()}`);
+    if (!response.ok) {
+      const message = await readExportError(response);
+      toast.error(message);
+      throw new Error(message);
+    }
+    const filename = await downloadExportResponse(
+      response,
+      `attendance-export.${format === 'xlsx' ? 'xlsx' : 'csv'}`,
+    );
+    toast.success(`Downloaded ${filename}`);
     setExportOpen(false);
   }
 

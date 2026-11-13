@@ -176,11 +176,15 @@ function IdentityBody({
         {detail.secondary_phone ? (
           <p className="mt-0.5 text-zinc-400">Alt phone · {detail.secondary_phone}</p>
         ) : null}
-        {(detail.health_subsectors?.length ?? 0) > 0 ? (
-          <p className="mt-0.5 text-zinc-400">{detail.health_subsectors?.join(', ')}</p>
-        ) : null}
-        {(detail.role_subsectors?.length ?? 0) > 0 ? (
-          <p className="mt-0.5 text-zinc-400">{detail.role_subsectors?.join(', ')}</p>
+        {detail.sector ? (
+          <p className="mt-1 text-zinc-200">
+            {detail.sector}
+            {(detail.health_subsectors?.length ?? 0) > 0
+              ? ` · ${detail.health_subsectors?.join(', ')}`
+              : (detail.role_subsectors?.length ?? 0) > 0
+                ? ` · ${detail.role_subsectors?.join(', ')}`
+                : ''}
+          </p>
         ) : null}
       </div>
 

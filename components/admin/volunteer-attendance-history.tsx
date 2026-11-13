@@ -4,8 +4,10 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
+import { subsectorFieldForSector } from '@cphia/shared/constants';
 import { ATTENDANCE_STATUSES, type AttendanceStatus } from '@/app/lib/admin/ops';
 import { adminFetch } from '@/app/lib/admin/messages';
+import { controlClass, Field } from '@/components/admin/console';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -18,6 +20,7 @@ type AttendanceRow = {
   status: AttendanceStatus | string;
   notes: string;
   checkedInAt: string | null;
+  hasMark?: boolean;
   shiftId: string;
   shiftName: string;
   shiftDate: string;
@@ -30,6 +33,28 @@ type AttendanceRow = {
   teamName: string;
   cohortCode: string;
   cohortName: string;
+  blockId?: string | null;
+};
+
+type BlockOption = {
+  id: string;
+  name: string;
+  kind: string;
+  startDate: string;
+  endDate: string;
+  location: string;
+  isFloorDefault: boolean;
+  hasMarks: boolean;
+  sectorMatch: boolean;
+  sectors: string[];
+  applicableShiftCount?: number;
+  totalShiftCount?: number;
+};
+
+type VolunteerMeta = {
+  sector: string;
+  healthSubsectors: string[];
+  roleSubsectors: string[];
 };
 
 /** Date ascending, then morning before afternoon, then start time. */
@@ -59,6 +84,7 @@ type Summary = {
   late: number;
   absent: number;
   excused: number;
+  notMarked?: number;
 };
 
 function formatCheckIn(value?: string | null) {
@@ -77,7 +103,42 @@ function statusTone(status: string) {
   if (status === 'present') return 'border-emerald-500/40 bg-emerald-500/15 text-emerald-200';
   if (status === 'late') return 'border-amber-500/40 bg-amber-500/15 text-amber-200';
   if (status === 'excused') return 'border-sky-500/40 bg-sky-500/15 text-sky-200';
+  if (status === 'not_marked') return 'border-white/15 bg-white/5 text-zinc-400';
   return 'border-white/10 bg-black/30 text-zinc-300';
+}
+
+function statusLabel(status: string) {
+  if (status === 'not_marked') return 'Not marked';
+  return status;
+}
+
+function volunteerSubsectors(meta: VolunteerMeta | null) {
+  if (!meta) return [] as string[];
+  const field = subsectorFieldForSector(meta.sector);
+  if (field === 'health_subsectors') return meta.healthSubsectors ?? [];
+  if (field === 'role_subsectors') return meta.roleSubsectors ?? [];
+  return [...(meta.healthSubsectors ?? []), ...(meta.roleSubsectors ?? [])];
+}
+
+function blockOptionLabel(block: BlockOption, volunteerSector?: string) {
+  const star = block.isFloorDefault ? '★ ' : '';
+  const range =
+    block.startDate && block.endDate
+      ? ` · ${block.startDate} → ${block.endDate}`
+      : '';
+  const applicable = block.applicableShiftCount ?? 0;
+  const flags = [
+    block.sectorMatch && applicable > 0
+      ? volunteerSector
+        ? `matches ${volunteerSector}`
+        : 'matches sector'
+      : null,
+    !block.sectorMatch ? 'other sector' : null,
+    block.sectorMatch && applicable === 0 && (block.totalShiftCount ?? 0) > 0
+      ? 'no shifts for this sector'
+      : null,
+  ].filter(Boolean);
+  return `${star}${block.name}${range}${flags.length ? ` (${flags.join(', ')})` : ''}`;
 }
 
 export function VolunteerAttendanceHistory({
@@ -85,29 +146,50 @@ export function VolunteerAttendanceHistory({
   canEdit = false,
 }: {
   volunteerId: string;
-  /** Superadmin-only: toggle marks from this panel. */
+  /** When true (attendance.mark): toggle marks from this panel. */
   canEdit?: boolean;
 }) {
   const [rows, setRows] = useState<AttendanceRow[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
-  const [verifiedOnly, setVerifiedOnly] = useState(!canEdit);
+  const [blocks, setBlocks] = useState<BlockOption[]>([]);
+  const [blockId, setBlockId] = useState('');
+  const [volunteer, setVolunteer] = useState<VolunteerMeta | null>(null);
+  // Include open sheets by default so the full selected bulk (including latest days) is visible.
+  const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [initialized, setInitialized] = useState(false);
 
-  async function load(nextVerifiedOnly = verifiedOnly) {
+  async function load(options?: {
+    nextVerifiedOnly?: boolean;
+    nextBlockId?: string;
+  }) {
+    const nextVerifiedOnly = options?.nextVerifiedOnly ?? verifiedOnly;
+    const nextBlockId = options?.nextBlockId ?? blockId;
     setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams();
       if (!nextVerifiedOnly) params.set('verifiedOnly', '0');
-      const payload = await adminFetch<{ rows: AttendanceRow[]; summary: Summary; verifiedOnly: boolean }>(
-        `/api/admin/registrations/${volunteerId}/attendance?${params}`,
-      );
+      if (nextBlockId) params.set('blockId', nextBlockId);
+      const payload = await adminFetch<{
+        rows: AttendanceRow[];
+        summary: Summary;
+        verifiedOnly: boolean;
+        blocks: BlockOption[];
+        defaultBlockId: string | null;
+        selectedBlockId: string;
+        volunteer: VolunteerMeta;
+      }>(`/api/admin/registrations/${volunteerId}/attendance?${params}`);
       setRows(sortShiftRows(payload.rows ?? []));
       setSummary(payload.summary);
       setVerifiedOnly(payload.verifiedOnly);
+      setBlocks(payload.blocks ?? []);
+      setBlockId(payload.selectedBlockId || '');
+      setVolunteer(payload.volunteer ?? null);
+      setInitialized(true);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not load attendance history.');
       setRows([]);
@@ -118,24 +200,33 @@ export function VolunteerAttendanceHistory({
   }
 
   useEffect(() => {
-    void load(canEdit ? false : true);
+    setInitialized(false);
+    setBlockId('');
+    void load({ nextVerifiedOnly: false, nextBlockId: '' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [volunteerId, canEdit]);
+  }, [volunteerId]);
 
   const orderedRows = useMemo(() => sortShiftRows(rows), [rows]);
+  const subsectors = useMemo(() => volunteerSubsectors(volunteer), [volunteer]);
+  const selectedBlock = useMemo(
+    () => blocks.find((block) => block.id === blockId) || null,
+    [blocks, blockId],
+  );
 
   const summaryLine = useMemo(() => {
-    if (!summary) return 'No attendance marks yet';
+    if (!summary) return 'Select a bulk sheet to see attendance';
     const attended = summary.present + summary.late;
     const bits = [
+      selectedBlock ? selectedBlock.name : null,
       `${attended} attended`,
       summary.late ? `${summary.late} late` : null,
       `${summary.absent} absent`,
       summary.excused ? `${summary.excused} excused` : null,
-      `${summary.total} sheet${summary.total === 1 ? '' : 's'}`,
+      summary.notMarked ? `${summary.notMarked} not marked` : null,
+      `${summary.total} shift${summary.total === 1 ? '' : 's'} in bulk`,
     ].filter(Boolean);
     return bits.join(' · ');
-  }, [summary]);
+  }, [summary, selectedBlock]);
 
   async function setStatus(row: AttendanceRow, status: AttendanceStatus) {
     if (!canEdit) return;
@@ -156,7 +247,7 @@ export function VolunteerAttendanceHistory({
         }),
       });
       toast.success(`Marked ${status}`);
-      await load(verifiedOnly);
+      await load({ nextVerifiedOnly: verifiedOnly, nextBlockId: blockId });
     } catch (reason) {
       toast.error(reason instanceof Error ? reason.message : 'Could not update attendance.');
     } finally {
@@ -165,8 +256,14 @@ export function VolunteerAttendanceHistory({
   }
 
   function toggleAttended(row: AttendanceRow) {
-    const next: AttendanceStatus = row.status === 'present' || row.status === 'late' ? 'absent' : 'present';
+    const next: AttendanceStatus =
+      row.status === 'present' || row.status === 'late' ? 'absent' : 'present';
     void setStatus(row, next);
+  }
+
+  function selectBlock(nextId: string) {
+    setBlockId(nextId);
+    void load({ nextBlockId: nextId });
   }
 
   return (
@@ -184,8 +281,14 @@ export function VolunteerAttendanceHistory({
               <CardTitle>Attendance</CardTitle>
             </div>
             <CardDescription className="mt-1">
-              {loading ? 'Loading attendance…' : summaryLine}
-              {!expanded ? <span className="ml-1 text-[#e7c15a]">· tap for detail</span> : null}
+              {loading && !initialized ? 'Loading attendance…' : summaryLine}
+              {volunteer?.sector ? (
+                <span className="block text-zinc-400">
+                  {volunteer.sector}
+                  {subsectors.length ? ` · ${subsectors.join(', ')}` : ''}
+                </span>
+              ) : null}
+              {!expanded ? <span className="text-[#e7c15a]"> · tap to open bulk attendance</span> : null}
             </CardDescription>
           </div>
           {!loading && summary ? (
@@ -207,26 +310,64 @@ export function VolunteerAttendanceHistory({
         </button>
 
         {expanded ? (
-          <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant={verifiedOnly ? 'default' : 'outline'}
-              onClick={() => void load(true)}
-            >
-              Verified only
-            </Button>
-            <Button
-              size="sm"
-              variant={!verifiedOnly ? 'default' : 'outline'}
-              onClick={() => void load(false)}
-            >
-              Include open
-            </Button>
-            {canEdit ? (
-              <p className="self-center text-xs text-zinc-500">
-                Superadmin checklist: toggle present / absent, or set late / excused.
+          <div className="grid gap-3">
+            <Field label="Bulk sheet">
+              <select
+                className={controlClass}
+                value={blockId}
+                disabled={!blocks.length}
+                onClick={(event) => event.stopPropagation()}
+                onChange={(event) => {
+                  event.stopPropagation();
+                  selectBlock(event.target.value);
+                }}
+              >
+                {!blocks.length ? <option value="">No bulk sheets yet</option> : null}
+                {blocks.map((block) => (
+                  <option key={block.id} value={block.id}>
+                    {blockOptionLabel(block, volunteer?.sector)}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            {selectedBlock ? (
+              <p className="text-xs text-zinc-500">
+                {selectedBlock.kind || 'Bulk'}
+                {selectedBlock.location ? ` · ${selectedBlock.location}` : ''}
+                {selectedBlock.isFloorDefault ? ' · floor default' : ''}
+                {selectedBlock.sectorMatch
+                  ? selectedBlock.sectors.length
+                    ? ` · sectors ${selectedBlock.sectors.join(', ')}`
+                    : ' · open to all sectors'
+                  : volunteer?.sector
+                    ? ` · ${volunteer.sector} not listed — showing only overlapping / marked shifts`
+                    : ' · no volunteer sector set'}
+                {typeof selectedBlock.applicableShiftCount === 'number'
+                  ? ` · ${selectedBlock.applicableShiftCount} shift${selectedBlock.applicableShiftCount === 1 ? '' : 's'} for this person`
+                  : null}
               </p>
             ) : null}
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant={verifiedOnly ? 'default' : 'outline'}
+                onClick={() => void load({ nextVerifiedOnly: true })}
+              >
+                Verified only
+              </Button>
+              <Button
+                size="sm"
+                variant={!verifiedOnly ? 'default' : 'outline'}
+                onClick={() => void load({ nextVerifiedOnly: false })}
+              >
+                Include open
+              </Button>
+              {canEdit ? (
+                <p className="self-center text-xs text-zinc-500">
+                  Mark attendance here: toggle present / absent, or set late / excused.
+                </p>
+              ) : null}
+            </div>
           </div>
         ) : null}
       </CardHeader>
@@ -255,7 +396,7 @@ export function VolunteerAttendanceHistory({
                     const locked = row.sheetStatus === 'verified';
                     const busy = savingId === row.shiftId;
                     return (
-                      <TableRow key={row.id}>
+                      <TableRow key={row.shiftId || row.id}>
                         {canEdit ? (
                           <TableCell>
                             <input
@@ -274,7 +415,11 @@ export function VolunteerAttendanceHistory({
                         </TableCell>
                         <TableCell>
                           <Link
-                            href={href(`/admin/attendance?shiftId=${row.shiftId}`)}
+                            href={href(
+                              selectedBlock && selectedBlock.id !== 'ungrouped'
+                                ? `/admin/attendance?blockId=${selectedBlock.id}&shiftId=${row.shiftId}`
+                                : `/admin/attendance?shiftId=${row.shiftId}`,
+                            )}
                             target="_blank"
                             rel="noopener noreferrer"
                             className={cn(buttonVariants({ variant: 'link' }), 'h-auto p-0 text-[#f6e7b2]')}
@@ -293,7 +438,7 @@ export function VolunteerAttendanceHistory({
                         </TableCell>
                         <TableCell>
                           <span className={cn('inline-flex rounded-full border px-2 py-0.5 text-[11px] capitalize', statusTone(row.status))}>
-                            {row.status}
+                            {statusLabel(row.status)}
                           </span>
                         </TableCell>
                         <TableCell>{formatCheckIn(row.checkedInAt)}</TableCell>
@@ -325,7 +470,11 @@ export function VolunteerAttendanceHistory({
                   {orderedRows.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={canEdit ? 7 : 5} className="text-zinc-400">
-                        No attendance marks{verifiedOnly ? ' on verified sheets' : ''} yet.
+                        {selectedBlock
+                          ? volunteer?.sector
+                            ? `No ${volunteer.sector} shifts in ${selectedBlock.name}${verifiedOnly ? ' on verified sheets' : ''}. Pick another bulk sheet, or add this sector on the block in Shifts.`
+                            : `No shifts in ${selectedBlock.name}${verifiedOnly ? ' on verified sheets' : ''} yet.`
+                          : 'No bulk sheet selected.'}
                       </TableCell>
                     </TableRow>
                   ) : null}

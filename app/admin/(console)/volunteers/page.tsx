@@ -23,7 +23,12 @@ import {
   volunteerAccess,
 } from '@/app/lib/admin/permissions';
 import type { RegistrationMetrics, RegistrationSummary } from '@/app/lib/admin/types';
-import { EXPORT_ASSET_COLUMNS, EXPORT_COLUMNS } from '@/app/lib/admin/types';
+import { downloadExportResponse, readExportError } from '@/app/lib/admin/download-export';
+import {
+  EXPORT_ASSET_COLUMNS,
+  EXPORT_ATTENDANCE_LEAN_COLUMNS,
+  EXPORT_COLUMNS,
+} from '@/app/lib/admin/types';
 import { ExportColumnsDialog } from '@/components/admin/export-columns-dialog';
 import { ReviewStatusActions } from '@/components/admin/review-status-actions';
 import { StatusBadge } from '@/components/admin/status-badge';
@@ -34,6 +39,7 @@ import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -53,6 +59,17 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+
+type ExportBlockOption = {
+  id: string;
+  name: string;
+  kind: string;
+  startDate: string;
+  endDate: string;
+  location: string;
+  isFloorDefault: boolean;
+  shiftCount: number;
+};
 
 function rowSubsectors(row: RegistrationSummary) {
   const field = subsectorFieldForSector(row.sector);
@@ -188,6 +205,17 @@ function VolunteersTable() {
   const [savingSubsectorId, setSavingSubsectorId] = useState<string | null>(null);
   const [exportSector, setExportSector] = useState(initialSector);
   const [exportSubsector, setExportSubsector] = useState(initialSubsector);
+  const [exportStatus, setExportStatus] = useState<'all' | AdminStatus>(
+    ADMIN_STATUSES.includes(initialStatus as AdminStatus) ? (initialStatus as AdminStatus) : 'all',
+  );
+  const [includeAttendance, setIncludeAttendance] = useState(false);
+  const [includeDayColumns, setIncludeDayColumns] = useState(false);
+  const [exportBlockIds, setExportBlockIds] = useState<string[]>([]);
+  const [exportVerifiedOnly, setExportVerifiedOnly] = useState(false);
+  const [exportAttendanceMode, setExportAttendanceMode] = useState<'day' | 'period'>('day');
+  const [exportBlocks, setExportBlocks] = useState<ExportBlockOption[]>([]);
+  const [exportBlocksLoading, setExportBlocksLoading] = useState(false);
+  const [columnsBeforeAttendance, setColumnsBeforeAttendance] = useState<string[] | null>(null);
   const [search, setSearch] = useState(initialSearch);
   const [page, setPage] = useState(Number.isFinite(initialPage) && initialPage > 0 ? initialPage : 1);
   const [loading, setLoading] = useState(true);
@@ -393,7 +421,36 @@ function VolunteersTable() {
     }
   }
 
-  function exportFile(format: 'csv' | 'xlsx') {
+  async function loadExportBlocks(options?: { selectAll?: boolean }) {
+    const selectAll = options?.selectAll !== false;
+    if (exportBlocks.length) {
+      if (selectAll) setExportBlockIds(exportBlocks.map((block) => block.id));
+      return;
+    }
+    setExportBlocksLoading(true);
+    try {
+      const response = await fetch('/api/admin/registrations/export/blocks');
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        toast.error(payload?.message || 'Could not load bulk sheets.');
+        return;
+      }
+      const blocks = (payload.blocks ?? []) as ExportBlockOption[];
+      setExportBlocks(blocks);
+      // Default: all bulks selected so % is across every sheet/day unless they narrow it.
+      if (selectAll) setExportBlockIds(blocks.map((block) => block.id));
+    } catch {
+      toast.error('Could not load bulk sheets.');
+    } finally {
+      setExportBlocksLoading(false);
+    }
+  }
+
+  async function exportFile(format: 'csv' | 'xlsx') {
+    if (includeAttendance && !exportBlockIds.length) {
+      toast.error('Choose at least one bulk sheet for attendance.');
+      throw new Error('BLOCK_REQUIRED');
+    }
     const required = ['sector', 'health_subsectors', 'role_subsectors'];
     const columns = [...selectedColumns];
     for (const id of required) {
@@ -403,13 +460,78 @@ function VolunteersTable() {
       }
     }
     const params = new URLSearchParams({ columns: columns.join(','), format });
-    if (status !== 'all') params.set('status', status);
+    if (exportStatus !== 'all') params.set('status', exportStatus);
     if (search.trim()) params.set('search', search.trim());
     if (exportSector) params.set('sector', exportSector);
     if (exportSubsector) params.set('subsector', exportSubsector);
-    window.location.assign(`/api/admin/registrations/export?${params}`);
+    if (includeAttendance) {
+      params.set('includeAttendance', '1');
+      params.set('blockIds', exportBlockIds.join(','));
+      params.set('attendanceMode', exportAttendanceMode);
+      if (includeDayColumns) params.set('includeDayColumns', '1');
+      if (exportVerifiedOnly) params.set('verifiedOnly', '1');
+    }
+
+    const response = await fetch(`/api/admin/registrations/export?${params}`);
+    if (!response.ok) {
+      const message = await readExportError(response);
+      toast.error(message);
+      throw new Error(message);
+    }
+
+    const filename = await downloadExportResponse(
+      response,
+      `cphia-volunteers.${format === 'xlsx' ? 'xlsx' : 'csv'}`,
+    );
+    toast.success(`Downloaded ${filename}`);
     setExportOpen(false);
   }
+
+  const selectedExportBlocks = useMemo(
+    () => exportBlocks.filter((block) => exportBlockIds.includes(block.id)),
+    [exportBlocks, exportBlockIds],
+  );
+
+  const selectedShiftCount = useMemo(
+    () => selectedExportBlocks.reduce((sum, block) => sum + (block.shiftCount || 0), 0),
+    [selectedExportBlocks],
+  );
+
+  const exportScopeNote = useMemo(() => {
+    const parts: string[] = [];
+    parts.push(exportStatus === 'all' ? 'All statuses' : `Status: ${exportStatus}`);
+    if (exportSector && exportSubsector) {
+      parts.push(`${exportSector} · ${exportSubsector}`);
+    } else if (exportSector) {
+      parts.push(`Sector: ${exportSector}`);
+    } else {
+      parts.push('All sectors');
+    }
+    if (search.trim()) parts.push(`Search: ${search.trim()}`);
+    if (includeAttendance) {
+      if (!selectedExportBlocks.length) {
+        parts.push('Attendance: select at least one bulk sheet');
+      } else {
+        parts.push(
+          `Attendance: ${selectedExportBlocks.length} bulk sheet${selectedExportBlocks.length === 1 ? '' : 's'} · ${selectedShiftCount} shifts given`,
+        );
+      }
+      if (includeDayColumns) parts.push('Day detail sheet (Came / Missed)');
+      if (exportVerifiedOnly) parts.push('Verified sheets only');
+      parts.push('Lean identity columns');
+    }
+    return parts.join(' · ');
+  }, [
+    exportStatus,
+    exportSector,
+    exportSubsector,
+    search,
+    includeAttendance,
+    includeDayColumns,
+    exportVerifiedOnly,
+    selectedExportBlocks,
+    selectedShiftCount,
+  ]);
 
   function openVolunteer(id: string) {
     if (openFullRecord) {
@@ -455,9 +577,15 @@ function VolunteersTable() {
                   ...EXPORT_COLUMNS.map((column) => column.id),
                   ...(isSuperAdmin ? EXPORT_ASSET_COLUMNS.map((column) => column.id) : []),
                 ]);
+                setColumnsBeforeAttendance(null);
+                setIncludeAttendance(false);
+                setIncludeDayColumns(false);
+                setExportBlockIds([]);
                 setExportSector(sector);
                 setExportSubsector(subsector);
+                setExportStatus(status);
                 setExportOpen(true);
+                void loadExportBlocks();
               }}
             >
               <Download className="size-4" />
@@ -811,58 +939,233 @@ function VolunteersTable() {
         onSelectedColumnsChange={setSelectedColumns}
         includeAssets={isSuperAdmin}
         title="Export volunteers"
-        description="Sector = exact sector only. Sub-category only appears for Health / UNICEF / U-Report / Serve Global / Ethiopian Youth Council. Choose columns, then download."
+        description="Set who is included, optionally attach shift attendance, pick columns, then download."
         onExport={exportFile}
       >
-        <div className={`mb-3 grid gap-3 ${sectorHasSubsectors(exportSector) ? 'sm:grid-cols-2' : ''}`}>
-          <label className="grid gap-1.5 text-sm">
-            <span className="text-muted-foreground">Sector</span>
-            <select
-              className="h-11 rounded-md border border-input bg-background px-3 text-sm"
-              value={exportSector}
-              onChange={(event) => {
-                const next = event.target.value;
-                setExportSector(next);
-                if (!sectorHasSubsectors(next)) setExportSubsector('');
-                else if (exportSubsector && !subsectorOptionsForSector(next).includes(exportSubsector)) {
-                  setExportSubsector('');
-                }
-              }}
-            >
-              <option value="">All sectors</option>
-              {SECTORS.map((option) => (
-                <option key={option} value={option}>{option}</option>
-              ))}
-            </select>
-          </label>
-          {sectorHasSubsectors(exportSector) ? (
+        <section className="grid gap-3">
+          <div>
+            <p className="text-sm font-medium">Who to include</p>
+            <p className="text-xs text-muted-foreground">Status and sector apply to the download, not only the table view.</p>
+          </div>
+          <div className={`grid gap-3 ${sectorHasSubsectors(exportSector) ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
             <label className="grid gap-1.5 text-sm">
-              <span className="text-muted-foreground">{subsectorLabelForSector(exportSector)}</span>
+              <span className="text-muted-foreground">Status</span>
               <select
                 className="h-11 rounded-md border border-input bg-background px-3 text-sm"
-                value={exportSubsector}
-                onChange={(event) => setExportSubsector(event.target.value)}
+                value={exportStatus}
+                onChange={(event) => setExportStatus(event.target.value as 'all' | AdminStatus)}
               >
-                <option value="">All sub-categories</option>
-                {subsectorOptionsForSector(exportSector).map((option) => (
+                <option value="all">All statuses</option>
+                {ADMIN_STATUSES.map((option) => (
                   <option key={option} value={option}>{option}</option>
                 ))}
               </select>
             </label>
+            <label className="grid gap-1.5 text-sm">
+              <span className="text-muted-foreground">Sector</span>
+              <select
+                className="h-11 rounded-md border border-input bg-background px-3 text-sm"
+                value={exportSector}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setExportSector(next);
+                  if (!sectorHasSubsectors(next)) setExportSubsector('');
+                  else if (exportSubsector && !subsectorOptionsForSector(next).includes(exportSubsector)) {
+                    setExportSubsector('');
+                  }
+                }}
+              >
+                <option value="">All sectors</option>
+                {SECTORS.map((option) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </select>
+            </label>
+            {sectorHasSubsectors(exportSector) ? (
+              <label className="grid gap-1.5 text-sm">
+                <span className="text-muted-foreground">{subsectorLabelForSector(exportSector)}</span>
+                <select
+                  className="h-11 rounded-md border border-input bg-background px-3 text-sm"
+                  value={exportSubsector}
+                  onChange={(event) => setExportSubsector(event.target.value)}
+                >
+                  <option value="">All sub-categories</option>
+                  {subsectorOptionsForSector(exportSector).map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+          </div>
+        </section>
+
+        <section className="grid gap-3 rounded-xl border border-border/70 bg-muted/15 p-3">
+          <label className="flex items-start gap-2 text-sm">
+            <Checkbox
+              className="mt-0.5"
+              checked={includeAttendance}
+              onCheckedChange={(checked) => {
+                const on = Boolean(checked);
+                setIncludeAttendance(on);
+                if (on) {
+                  setColumnsBeforeAttendance(selectedColumns);
+                  setSelectedColumns([...EXPORT_ATTENDANCE_LEAN_COLUMNS]);
+                  void loadExportBlocks({ selectAll: true });
+                } else {
+                  setIncludeDayColumns(false);
+                  setExportBlockIds([]);
+                  setSelectedColumns(
+                    columnsBeforeAttendance?.length
+                      ? columnsBeforeAttendance
+                      : [
+                          ...EXPORT_COLUMNS.map((column) => column.id),
+                          ...(isSuperAdmin ? EXPORT_ASSET_COLUMNS.map((column) => column.id) : []),
+                        ],
+                  );
+                  setColumnsBeforeAttendance(null);
+                }
+              }}
+            />
+            <span>
+              <span className="font-medium">Include shift attendance</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                Switches to lean identity columns and adds given vs came scores for the bulk sheet.
+              </span>
+            </span>
+          </label>
+
+          {includeAttendance ? (
+            <div className="grid gap-3 border-t border-border/50 pt-3">
+              <div className="grid gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-medium">Bulk sheets</p>
+                    <p className="text-xs text-muted-foreground">
+                      Select one or more. Scores and % use every morning/afternoon shift across the selection.
+                    </p>
+                  </div>
+                  <div className="flex gap-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8"
+                      disabled={exportBlocksLoading || !exportBlocks.length || exportBlockIds.length === exportBlocks.length}
+                      onClick={() => setExportBlockIds(exportBlocks.map((block) => block.id))}
+                    >
+                      Select all
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8"
+                      disabled={exportBlocksLoading || !exportBlockIds.length}
+                      onClick={() => setExportBlockIds([])}
+                    >
+                      Unselect all
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="grid max-h-44 gap-1 overflow-y-auto rounded-xl border border-border/70 bg-background/40 p-2">
+                  {exportBlocksLoading ? (
+                    <p className="px-2 py-3 text-xs text-muted-foreground">Loading bulk sheets…</p>
+                  ) : null}
+                  {!exportBlocksLoading && !exportBlocks.length ? (
+                    <p className="px-2 py-3 text-xs text-muted-foreground">No bulk sheets found.</p>
+                  ) : null}
+                  {exportBlocks.map((block) => {
+                    const checked = exportBlockIds.includes(block.id);
+                    return (
+                      <label
+                        key={block.id}
+                        className={cn(
+                          'flex min-h-10 cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 text-sm transition hover:bg-white/5',
+                          checked && 'bg-white/5',
+                        )}
+                      >
+                        <Checkbox
+                          className="mt-0.5"
+                          checked={checked}
+                          onCheckedChange={(next) => {
+                            setExportBlockIds((current) =>
+                              next
+                                ? [...current, block.id]
+                                : current.filter((id) => id !== block.id),
+                            );
+                          }}
+                        />
+                        <span className="min-w-0 leading-snug">
+                          <span className="font-medium">
+                            {block.isFloorDefault ? '★ ' : ''}
+                            {block.name}
+                          </span>
+                          <span className="mt-0.5 block text-xs text-muted-foreground">
+                            {block.startDate && block.endDate
+                              ? `${block.startDate} → ${block.endDate} · `
+                              : ''}
+                            {block.shiftCount} shift{block.shiftCount === 1 ? '' : 's'}
+                            {block.location ? ` · ${block.location}` : ''}
+                          </span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {exportBlockIds.length
+                    ? `${exportBlockIds.length} selected · ${selectedShiftCount} shifts in the denominator`
+                    : 'No bulk sheets selected'}
+                </p>
+              </div>
+
+              <label className="grid gap-1.5 text-sm">
+                <span className="text-muted-foreground">Count mode</span>
+                <select
+                  className="h-11 rounded-md border border-input bg-background px-3 text-sm"
+                  value={exportAttendanceMode}
+                  onChange={(event) => setExportAttendanceMode(event.target.value as 'day' | 'period')}
+                >
+                  <option value="day">By day (morning or afternoon = 1 day)</option>
+                  <option value="period">By period (morning and afternoon separate)</option>
+                </select>
+              </label>
+
+              <label className="flex items-start gap-2 text-sm">
+                <Checkbox
+                  className="mt-0.5"
+                  checked={includeDayColumns}
+                  onCheckedChange={(checked) => setIncludeDayColumns(Boolean(checked))}
+                />
+                <span>
+                  <span className="font-medium">Include day-by-day detail</span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">
+                    Excel adds a second sheet with Came / Missed across every selected sheet’s dates. Unmarked = Missed.
+                  </span>
+                </span>
+              </label>
+
+              <label className="flex items-start gap-2 text-sm">
+                <Checkbox
+                  className="mt-0.5"
+                  checked={exportVerifiedOnly}
+                  onCheckedChange={(checked) => setExportVerifiedOnly(Boolean(checked))}
+                />
+                <span>
+                  <span className="font-medium">Verified sheets only</span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">
+                    Ignore open or submitted sheets when counting attendance.
+                  </span>
+                </span>
+              </label>
+            </div>
           ) : null}
-          <p className="text-xs text-muted-foreground sm:col-span-2">
-            {exportSector && !exportSubsector
-              ? `Exporting only people whose sector is ${exportSector}.`
-              : exportSector && exportSubsector
-                ? `Exporting ${exportSector} people assigned to ${exportSubsector}.`
-                : [
-                    status !== 'all' ? `Status: ${status}` : null,
-                    search.trim() ? `Search: ${search.trim()}` : null,
-                  ]
-                    .filter(Boolean)
-                    .join(' · ') || 'No sector filter — exporting the full loaded cohort.'}
-          </p>
-        </div>
+        </section>
+
+        <p className="rounded-lg border border-[#e7c15a]/25 bg-[#e7c15a]/10 px-3 py-2 text-xs text-[#f6e7b2]">
+          {exportScopeNote}
+        </p>
       </ExportColumnsDialog>
 
       <VolunteerPreviewDialog

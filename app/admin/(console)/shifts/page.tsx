@@ -402,21 +402,39 @@ export default function ShiftsPage() {
       toast.error('Block name is required.');
       return;
     }
+    if (!bulk.startDate || !bulk.endDate) {
+      toast.error('Set both from and to dates for this bulk.');
+      return;
+    }
+    if (bulk.endDate < bulk.startDate) {
+      toast.error('To date must be on or after from date.');
+      return;
+    }
     try {
-      await adminFetch(`/api/admin/shifts/blocks/${editingBlockId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({
-          name: bulk.blockName,
-          location: bulk.location,
-          capacity: Number(bulk.capacity) || 0,
-          notes: bulk.notes,
-          startDate: bulk.startDate,
-          endDate: bulk.endDate,
-          sectors: bulk.sectors,
-          applyToShifts: true,
-        }),
-      });
-      toast.success('Bulk block updated.');
+      const payload = await adminFetch<{ ok: boolean; added?: number; removed?: number }>(
+        `/api/admin/shifts/blocks/${editingBlockId}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({
+            name: bulk.blockName,
+            location: bulk.location,
+            capacity: Number(bulk.capacity) || 0,
+            notes: bulk.notes,
+            startDate: bulk.startDate,
+            endDate: bulk.endDate,
+            sectors: bulk.sectors,
+            applyToShifts: true,
+            syncShifts: true,
+          }),
+        },
+      );
+      const added = payload.added ?? 0;
+      const removed = payload.removed ?? 0;
+      toast.success(
+        added || removed
+          ? `Bulk updated · added ${added} · removed ${removed} shift${added + removed === 1 ? '' : 's'}.`
+          : 'Bulk block updated.',
+      );
       resetBulkForm();
       await load();
     } catch (reason) {
@@ -746,8 +764,10 @@ export default function ShiftsPage() {
           {editingBlockId ? (
             <div className="md:col-span-2 xl:col-span-4 rounded-2xl border border-[#e7c15a]/30 bg-[#e7c15a]/5 p-4">
               <p className="text-sm text-zinc-300">
-                Saving updates the block name, dates, location, capacity, notes, and sectors on every shift in this block.
-                Morning/afternoon times are shown for reference — use <span className="text-white">Add shifts</span> on the block to create more slots.
+                Saving updates the block and <span className="text-white">syncs its shifts to the from / to dates</span>:
+                missing day · morning/afternoon slots are added; shifts outside the new range are removed
+                (attendance on those removed shifts is deleted too). Location, capacity, notes, and sectors
+                are pushed onto every shift that remains.
               </p>
             </div>
           ) : (

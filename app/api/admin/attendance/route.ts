@@ -142,7 +142,7 @@ export async function GET(request: NextRequest) {
 
       const attendance = await supabase
         .from('ops_attendance')
-        .select('id, status, notes, checked_in_at, marked_by, registration_id, updated_at, registrations(id, registration_id, first_name, middle_name, last_name, sector, email, phone, review_status)')
+        .select('id, status, notes, checked_in_at, marked_by, registration_id, updated_at, registrations(id, registration_id, first_name, middle_name, last_name, sector, health_subsectors, role_subsectors, email, phone, review_status)')
         .eq('shift_id', shiftId)
         .order('updated_at', { ascending: false });
       if (attendance.error) return dbError(attendance.error);
@@ -234,7 +234,7 @@ export async function GET(request: NextRequest) {
     if (search || mode === 'approved') {
       let peopleQuery = supabase
         .from('registrations')
-        .select('id, registration_id, first_name, middle_name, last_name, sector, email, phone')
+        .select('id, registration_id, first_name, middle_name, last_name, sector, health_subsectors, role_subsectors, email, phone')
         .eq('review_status', 'approved')
         .order('first_name', { ascending: true })
         .order('middle_name', { ascending: true })

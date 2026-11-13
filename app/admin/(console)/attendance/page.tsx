@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Settings2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { subsectorFieldForSector } from '@cphia/shared/constants';
 import { ATTENDANCE_STATUSES, type AttendanceStatus } from '@/app/lib/admin/ops';
 import { adminFetch } from '@/app/lib/admin/messages';
 import { hasCapability } from '@/app/lib/admin/permissions';
@@ -67,6 +68,8 @@ type Person = {
   middle_name?: string | null;
   last_name: string;
   sector: string;
+  health_subsectors?: string[] | null;
+  role_subsectors?: string[] | null;
   email: string;
   phone?: string;
   review_status?: string;
@@ -107,6 +110,19 @@ function normalizeSearchText(value: string) {
     .trim();
 }
 
+function personSubsectors(person: Person) {
+  const field = subsectorFieldForSector(person.sector);
+  if (field === 'health_subsectors') return person.health_subsectors ?? [];
+  if (field === 'role_subsectors') return person.role_subsectors ?? [];
+  return [...(person.health_subsectors ?? []), ...(person.role_subsectors ?? [])];
+}
+
+function personSectorLine(person: Person | null | undefined) {
+  if (!person) return '';
+  const subs = personSubsectors(person);
+  return [person.sector, subs.length ? subs.join(', ') : null].filter(Boolean).join(' · ');
+}
+
 function personMatches(person: Person, query: string) {
   const q = normalizeSearchText(query);
   if (!q) return true;
@@ -119,6 +135,7 @@ function personMatches(person: Person, query: string) {
       person.email,
       person.registration_id,
       person.sector,
+      ...(personSubsectors(person)),
       person.phone,
       (person.phone || '').replace(/\D+/g, ''),
     ]
@@ -1066,7 +1083,7 @@ function AttendanceDesk() {
                           {isLate ? <LateBadge checkedInAt={checkIn} /> : null}
                         </div>
                         <p className="mt-1 text-xs text-zinc-400">
-                          {person.registration_id} · {person.sector}
+                          {person.registration_id} · {personSectorLine(person)}
                           {row && !alreadyPresent && !isLate ? ` · ${row.status}` : null}
                           {!row ? ' · not on sheet yet' : null}
                           {row?.checked_in_at && !alreadyPresent && !isLate ? ` · in ${checkIn}` : ''}
@@ -1148,7 +1165,7 @@ function AttendanceDesk() {
                             {isLate ? <LateBadge checkedInAt={checkIn} /> : null}
                           </div>
                           <p className="mt-1 text-xs text-zinc-400">
-                            {person?.registration_id} · {person?.sector}
+                            {person?.registration_id} · {personSectorLine(person)}
                             {!alreadyPresent && !isLate ? ` · ${row.status}` : null}
                             {row.checked_in_at && !alreadyPresent && !isLate ? ` · in ${checkIn}` : ''}
                             {row.notes ? ` · note: ${row.notes}` : ''}

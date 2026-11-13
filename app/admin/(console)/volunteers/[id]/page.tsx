@@ -19,10 +19,12 @@ import { toast } from 'sonner';
 import {
   canVolunteerManage,
   canVolunteerUpdate,
+  hasCapability,
   volunteerAccess,
 } from '@/app/lib/admin/permissions';
 import type { AdminStatus } from '@/app/lib/admin/status';
 import { ADMIN_STATUSES } from '@/app/lib/admin/status';
+import { downloadExportResponse, readExportError } from '@/app/lib/admin/download-export';
 import { EXPORT_ASSET_COLUMNS, EXPORT_COLUMNS } from '@/app/lib/admin/types';
 import {
   DOCUMENT_ACCEPT,
@@ -378,6 +380,7 @@ function VolunteerDetailPageInner() {
   const access = session ? volunteerAccess(session) : null;
   const canUpdate = session ? canVolunteerUpdate(session) : false;
   const canManage = session ? canVolunteerManage(session) : false;
+  const canMarkAttendance = session ? hasCapability(session, 'attendance.mark') : false;
   const readOnlyPopup = access === 'read';
 
   useEffect(() => {
@@ -517,7 +520,7 @@ function VolunteerDetailPageInner() {
     router.replace(volunteersHref);
   }
 
-  function exportVolunteer(format: 'csv' | 'xlsx') {
+  async function exportVolunteer(format: 'csv' | 'xlsx') {
     const required = ['sector', 'health_subsectors', 'role_subsectors'];
     const columns = [...selectedColumns];
     for (const id of required) {
@@ -526,9 +529,22 @@ function VolunteerDetailPageInner() {
         columns.splice(sectorAt >= 0 ? sectorAt + 1 : columns.length, 0, id);
       }
     }
-    window.location.assign(
-      `/api/admin/registrations/export?id=${params.id}&columns=${encodeURIComponent(columns.join(','))}&format=${format}`,
+    const query = new URLSearchParams({
+      id: params.id,
+      columns: columns.join(','),
+      format,
+    });
+    const response = await fetch(`/api/admin/registrations/export?${query}`);
+    if (!response.ok) {
+      const message = await readExportError(response);
+      toast.error(message);
+      throw new Error(message);
+    }
+    const filename = await downloadExportResponse(
+      response,
+      `cphia-volunteer.${format === 'xlsx' ? 'xlsx' : 'csv'}`,
     );
+    toast.success(`Downloaded ${filename}`);
     setExportOpen(false);
   }
 
@@ -688,7 +704,7 @@ function VolunteerDetailPageInner() {
         </Card>
       ) : null}
 
-      <VolunteerAttendanceHistory volunteerId={detail.id} canEdit={Boolean(isSuperAdmin)} />
+      <VolunteerAttendanceHistory volunteerId={detail.id} canEdit={canMarkAttendance} />
 
       {cohort ? (
         <Card>

@@ -11,12 +11,29 @@ import type { RegistrationMetrics } from './types';
 export type RegistrationFilterParams = {
   status?: string | null;
   search?: string;
+  /** Single sector (legacy). Prefer `sectors` when multiple are selected. */
   sector?: string | null;
+  /** One or more sectors. Empty / omitted = all sectors. */
+  sectors?: string[] | null;
   subsector?: string | null;
 };
 
 export function parseSector(value: string | null) {
   return normalizeSector(value);
+}
+
+/** Parse `sectors=Health,Tourism` or a single `sector=` value into canonical labels. */
+export function parseSectors(
+  rawSectors: string | null | undefined,
+  rawSector?: string | null,
+): string[] {
+  const fromList = String(rawSectors || '')
+    .split(',')
+    .map((item) => parseSector(item.trim()))
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+  if (fromList.length) return [...new Set(fromList)];
+  const single = parseSector(rawSector ?? null);
+  return single ? [single] : [];
 }
 
 export function parseSubsector(value: string | null) {
@@ -76,10 +93,17 @@ export function applyRegistrationFilters<T extends FilterableQuery>(
   if (options?.includeStatus !== false && filters.status) {
     next = next.eq('review_status', filters.status) as T;
   }
-  // Sector filter is exact: Transport = only sector Transport.
-  // Sub-category is separate: U-Report + Transport sub-category = U-Report rows with that assignment.
-  if (filters.sector) {
-    const variants = sectorFilterValues(filters.sector);
+  // Sector filter is exact: Transport = only sector Transport (not a Transport sub-category).
+  // Multiple sectors use `.in(...)`. Sub-category is separate (U-Report + Transport assignment).
+  const sectorList = (filters.sectors?.length
+    ? filters.sectors
+    : filters.sector
+      ? [filters.sector]
+      : [])
+    .map((item) => normalizeSector(item) || item)
+    .filter(Boolean);
+  if (sectorList.length) {
+    const variants = [...new Set(sectorList.flatMap((sector) => sectorFilterValues(sector)))];
     next = (variants.length === 1
       ? next.eq('sector', variants[0])
       : next.in('sector', variants)) as T;

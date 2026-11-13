@@ -866,6 +866,226 @@ export function buildPersonAttendanceExport(options: {
   return { headers, records };
 }
 
+export type BlockAttendanceShift = {
+  id: string;
+  shift_date: string;
+  start_time: string;
+};
+
+export type BlockAttendanceMark = {
+  registration_id: string;
+  shift_id: string;
+  status: string;
+};
+
+/**
+ * Volunteer-list export appendix: judge each person against the shifts in a bulk block
+ * (morning/afternoon slots synced from the block date range).
+ *
+ * - Summary first: bulk name, shifts/days given vs attended, morning/afternoon, came, %.
+ * - Optional day-by-day after that: Came / Missed only (unmarked counts as Missed because
+ *   the shift was given on that bulk sheet).
+ */
+export function buildVolunteerBlockAttendanceAppendix(options: {
+  personIds: string[];
+  /** One or more bulk sheet names — joined for the summary “Bulk sheets” column. */
+  blockName: string;
+  blockNames?: string[];
+  shifts: BlockAttendanceShift[];
+  marks: BlockAttendanceMark[];
+  mode?: PersonDayExportMode;
+  includeDayColumns?: boolean;
+}): {
+  headers: string[];
+  summaryHeaders: string[];
+  dayHeaders: string[];
+  byPersonId: Map<string, string[]>;
+  summaryByPersonId: Map<string, string[]>;
+  dayByPersonId: Map<string, string[]>;
+} {
+  const mode = options.mode ?? 'day';
+  const includeDayColumns = Boolean(options.includeDayColumns);
+  const bulkLabel = (options.blockNames?.filter(Boolean).length
+    ? options.blockNames.filter(Boolean).join(' · ')
+    : options.blockName) || 'Selected bulk sheets';
+
+  const shifts = [...options.shifts].sort((a, b) =>
+    a.shift_date.localeCompare(b.shift_date)
+    || a.start_time.localeCompare(b.start_time)
+    || a.id.localeCompare(b.id),
+  );
+  const dates = [...new Set(shifts.map((shift) => shift.shift_date))].sort();
+  const shiftById = new Map(shifts.map((shift) => [shift.id, shift]));
+
+  const marksByPersonShift = new Map<string, string>();
+  for (const mark of options.marks) {
+    if (!shiftById.has(mark.shift_id)) continue;
+    marksByPersonShift.set(`${mark.registration_id}|${mark.shift_id}`, mark.status);
+  }
+
+  type DayAcc = {
+    attended: boolean;
+  };
+
+  const byPersonDay = new Map<string, DayAcc>();
+  for (const personId of options.personIds) {
+    for (const shift of shifts) {
+      const status = marksByPersonShift.get(`${personId}|${shift.id}`);
+      if (!status || !isAttendedStatus(status)) continue;
+      const key = `${personId}|${shift.shift_date}`;
+      const current = byPersonDay.get(key) || { attended: false };
+      current.attended = true;
+      byPersonDay.set(key, current);
+    }
+  }
+
+  const morningShifts = shifts.filter((shift) => shiftPeriod(shift.start_time) === 'morning').length;
+  const afternoonShifts = shifts.filter((shift) => shiftPeriod(shift.start_time) === 'afternoon').length;
+  const shiftsGiven = shifts.length;
+  const daysGiven = dates.length;
+
+  const dayHeaders =
+    mode === 'period'
+      ? shifts.map((shift) =>
+          attendancePeriodColumnHeader(shift.shift_date, shiftPeriod(shift.start_time)),
+        )
+      : dates.map((date) => attendanceDayColumnHeader(date));
+
+  const summaryHeaders =
+    mode === 'day'
+      ? [
+          'Bulk sheets',
+          'Bulk sheets count',
+          'Came at least once (Yes/No)',
+          'Days attended',
+          'Days given',
+          'Days missed',
+          'Shifts attended',
+          'Shifts given',
+          'Morning attended',
+          'Morning given',
+          'Afternoon attended',
+          'Afternoon given',
+          'Attendance %',
+        ]
+      : [
+          'Bulk sheets',
+          'Bulk sheets count',
+          'Came at least once (Yes/No)',
+          'Morning attended',
+          'Morning given',
+          'Afternoon attended',
+          'Afternoon given',
+          'Shifts attended',
+          'Shifts given',
+          'Attendance %',
+        ];
+
+  const bulkCount = String(Math.max(1, options.blockNames?.filter(Boolean).length || 1));
+
+  const headers = [
+    ...summaryHeaders,
+    ...(includeDayColumns ? dayHeaders : []),
+  ];
+
+  const byPersonId = new Map<string, string[]>();
+  const summaryByPersonId = new Map<string, string[]>();
+  const dayByPersonId = new Map<string, string[]>();
+
+  for (const personId of options.personIds) {
+    let daysAttended = 0;
+    let morningAttended = 0;
+    let afternoonAttended = 0;
+    let shiftsAttended = 0;
+    let came = false;
+
+    for (const shift of shifts) {
+      const status = marksByPersonShift.get(`${personId}|${shift.id}`);
+      if (!status || !isAttendedStatus(status)) continue;
+      shiftsAttended += 1;
+      came = true;
+      const period = shiftPeriod(shift.start_time);
+      if (period === 'morning') morningAttended += 1;
+      else afternoonAttended += 1;
+    }
+
+    const dayCells: string[] = [];
+    if (mode === 'day') {
+      for (const date of dates) {
+        const entry = byPersonDay.get(`${personId}|${date}`);
+        if (entry?.attended) {
+          dayCells.push('Came');
+          daysAttended += 1;
+        } else {
+          dayCells.push('Missed');
+        }
+      }
+    } else {
+      for (const shift of shifts) {
+        const status = marksByPersonShift.get(`${personId}|${shift.id}`);
+        dayCells.push(
+          status && isAttendedStatus(status)
+            ? status === 'late'
+              ? 'Late'
+              : 'Came'
+            : 'Missed',
+        );
+      }
+    }
+
+    const daysMissed = Math.max(0, daysGiven - daysAttended);
+    const attendancePercent = shiftsGiven
+      ? String(Math.round((shiftsAttended / shiftsGiven) * 1000) / 10)
+      : '0';
+
+    const summary =
+      mode === 'day'
+        ? [
+            bulkLabel,
+            bulkCount,
+            came ? 'Yes' : 'No',
+            String(daysAttended),
+            String(daysGiven),
+            String(daysMissed),
+            String(shiftsAttended),
+            String(shiftsGiven),
+            String(morningAttended),
+            String(morningShifts),
+            String(afternoonAttended),
+            String(afternoonShifts),
+            attendancePercent,
+          ]
+        : [
+            bulkLabel,
+            bulkCount,
+            came ? 'Yes' : 'No',
+            String(morningAttended),
+            String(morningShifts),
+            String(afternoonAttended),
+            String(afternoonShifts),
+            String(shiftsAttended),
+            String(shiftsGiven),
+            attendancePercent,
+          ];
+
+    summaryByPersonId.set(personId, summary);
+    dayByPersonId.set(personId, dayCells);
+    byPersonId.set(personId, [
+      ...summary,
+      ...(includeDayColumns ? dayCells : []),
+    ]);
+  }
+
+  return {
+    headers,
+    summaryHeaders,
+    dayHeaders: includeDayColumns ? dayHeaders : [],
+    byPersonId,
+    summaryByPersonId,
+    dayByPersonId,
+  };
+}
+
 export function summarizeAttendance(rows: AttendanceFlatRow[]) {
   const byShift = new Map<
     string,

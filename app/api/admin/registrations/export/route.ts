@@ -2,6 +2,12 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import ExcelJS from 'exceljs';
 import { logActivity } from '@/app/lib/admin/activity';
+import {
+  buildVolunteerBlockAttendanceAppendix,
+  type BlockAttendanceMark,
+  type BlockAttendanceShift,
+  type PersonDayExportMode,
+} from '@/app/lib/admin/attendance-query';
 import { requireFeature } from '@/app/lib/admin/guard';
 import {
   applyNameSort,
@@ -41,9 +47,7 @@ function cellValue(value: unknown) {
   return String(value);
 }
 
-function formatLanguages(
-  value: unknown,
-): string {
+function formatLanguages(value: unknown): string {
   if (!Array.isArray(value)) return '';
   return value
     .map((item) => {
@@ -54,6 +58,18 @@ function formatLanguages(
     })
     .filter(Boolean)
     .join('; ');
+}
+
+function chunkIds<T>(items: T[], size: number) {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
+
+function statusSlug(status: string | null) {
+  return status || 'all';
 }
 
 export async function GET(request: NextRequest) {
@@ -92,6 +108,27 @@ export async function GET(request: NextRequest) {
   const id = request.nextUrl.searchParams.get('id');
   const wantsAssets = selected.some((col) => assetAllowed.has(col));
 
+  const includeAttendance = request.nextUrl.searchParams.get('includeAttendance') === '1';
+  const includeDayColumns = request.nextUrl.searchParams.get('includeDayColumns') === '1';
+  const blockIds = [
+    ...String(request.nextUrl.searchParams.get('blockIds') || '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean),
+    // Back-compat with single blockId.
+    String(request.nextUrl.searchParams.get('blockId') || '').trim(),
+  ].filter((id, index, all) => id && all.indexOf(id) === index);
+  const verifiedOnly = request.nextUrl.searchParams.get('verifiedOnly') === '1';
+  const attendanceMode: PersonDayExportMode =
+    request.nextUrl.searchParams.get('attendanceMode') === 'period' ? 'period' : 'day';
+
+  if (includeAttendance && !blockIds.length) {
+    return NextResponse.json(
+      { error: 'BLOCK_REQUIRED', message: 'Choose at least one bulk sheet to include shift attendance.' },
+      { status: 400 },
+    );
+  }
+
   const supabase = getSupabaseAdmin();
   let data: Array<Record<string, unknown>> = [];
   try {
@@ -129,29 +166,136 @@ export async function GET(request: NextRequest) {
     return url;
   }
 
-  const rows: Array<Record<string, string>> = [];
+  const identityRows: Array<{ id: string; cells: string[] }> = [];
   for (const row of data) {
-    const mapped: Record<string, string> = {};
+    const cells: string[] = [];
     for (const col of selected) {
       if (col === 'languages') {
-        mapped[col] = formatLanguages(row.registration_languages);
+        cells.push(formatLanguages(row.registration_languages));
         continue;
       }
       if (assetAllowed.has(col)) {
         const asset = assetById.get(col as (typeof EXPORT_ASSET_COLUMNS)[number]['id']);
-        mapped[col] = asset && wantsAssets
-          ? await signedUrl(row[asset.pathKey] as string | null | undefined)
-          : '';
+        cells.push(
+          asset && wantsAssets
+            ? await signedUrl(row[asset.pathKey] as string | null | undefined)
+            : '',
+        );
         continue;
       }
-      mapped[col] = cellValue(row[col]);
+      cells.push(cellValue(row[col]));
     }
-    rows.push(mapped);
+    identityRows.push({ id: String(row.id), cells });
   }
 
-  const labels = selected.map((col) => allLabels.get(col) ?? col);
+  let summaryHeaders: string[] = [];
+  let dayHeaders: string[] = [];
+  let summaryByPersonId = new Map<string, string[]>();
+  let dayByPersonId = new Map<string, string[]>();
+  let blockName: string | null = null;
+
+  if (includeAttendance && blockIds.length) {
+    try {
+      const { data: blocks, error: blockError } = await supabase
+        .from('ops_shift_blocks')
+        .select('id, name')
+        .in('id', blockIds);
+      if (blockError) throw blockError;
+      if (!blocks?.length) {
+        return NextResponse.json({ error: 'BLOCK_NOT_FOUND' }, { status: 404 });
+      }
+
+      // Preserve UI selection order when possible.
+      const blockById = new Map(blocks.map((block) => [block.id, block]));
+      const orderedBlocks = blockIds
+        .map((id) => blockById.get(id))
+        .filter((block): block is { id: string; name: string } => Boolean(block));
+      const blockNames = orderedBlocks.map((block) => block.name);
+      blockName = blockNames.length === 1
+        ? blockNames[0]!
+        : `${blockNames.length}-bulks`;
+
+      let shiftsQuery = supabase
+        .from('ops_shifts')
+        .select('id, shift_date, start_time, block_id')
+        .in('block_id', orderedBlocks.map((block) => block.id))
+        .order('shift_date', { ascending: true })
+        .order('start_time', { ascending: true });
+      if (verifiedOnly) {
+        shiftsQuery = shiftsQuery.eq('sheet_status', 'verified');
+      }
+      const { data: shiftRows, error: shiftsError } = await shiftsQuery;
+      if (shiftsError) throw shiftsError;
+
+      const shifts: BlockAttendanceShift[] = (shiftRows ?? []).map((shift) => ({
+        id: shift.id,
+        shift_date: shift.shift_date,
+        start_time: String(shift.start_time || '').slice(0, 5),
+      }));
+
+      const shiftIds = shifts.map((shift) => shift.id);
+      const personIds = identityRows.map((row) => row.id);
+      const marks: BlockAttendanceMark[] = [];
+
+      if (shiftIds.length && personIds.length) {
+        for (const shiftChunk of chunkIds(shiftIds, 200)) {
+          for (const personChunk of chunkIds(personIds, 200)) {
+            const { data: markRows, error: marksError } = await supabase
+              .from('ops_attendance')
+              .select('registration_id, shift_id, status')
+              .in('shift_id', shiftChunk)
+              .in('registration_id', personChunk);
+            if (marksError) throw marksError;
+            for (const mark of markRows ?? []) {
+              marks.push({
+                registration_id: mark.registration_id,
+                shift_id: mark.shift_id,
+                status: mark.status,
+              });
+            }
+          }
+        }
+      }
+
+      const appendix = buildVolunteerBlockAttendanceAppendix({
+        personIds,
+        blockName: blockNames.join(' · '),
+        blockNames,
+        shifts,
+        marks,
+        mode: attendanceMode,
+        includeDayColumns,
+      });
+      summaryHeaders = appendix.summaryHeaders;
+      dayHeaders = appendix.dayHeaders;
+      summaryByPersonId = appendix.summaryByPersonId;
+      dayByPersonId = appendix.dayByPersonId;
+    } catch (error) {
+      console.error('admin_export_attendance_error', error);
+      return NextResponse.json({ error: 'ATTENDANCE_EXPORT_FAILED' }, { status: 500 });
+    }
+  }
+
+  const identityHeaders = selected.map((col) => allLabels.get(col) ?? col);
+  // Main sheet: identity + score summary only (day detail goes on a second Excel sheet).
+  const mainHeaders = [...identityHeaders, ...summaryHeaders];
+  const mainRecords = identityRows.map((row) => [
+    ...row.cells,
+    ...(summaryByPersonId.get(row.id) ?? summaryHeaders.map(() => '')),
+  ]);
+
   const stamp = new Date().toISOString().slice(0, 10);
-  const rowCount = rows.length;
+  const rowCount = mainRecords.length;
+  const filenameBase = [
+    'cphia-volunteers',
+    statusSlug(status),
+    blockName ? blockName.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) : null,
+    includeAttendance ? 'attendance' : null,
+    includeDayColumns ? 'by-day' : null,
+    stamp,
+  ]
+    .filter(Boolean)
+    .join('-');
 
   await logActivity({
     actor: gate.session,
@@ -159,39 +303,79 @@ export async function GET(request: NextRequest) {
     summary: `${gate.session.fullName} exported ${rowCount} volunteer${rowCount === 1 ? '' : 's'} as ${format.toUpperCase()}`,
     entityType: 'export',
     entityId: stamp,
-    metadata: { format, rowCount, status, sector, subsector, search: search || null, columns: selected },
+    metadata: {
+      format,
+      rowCount,
+      status,
+      sector,
+      subsector,
+      search: search || null,
+      columns: selected,
+      includeAttendance,
+      includeDayColumns,
+      blockIds: blockIds.length ? blockIds : null,
+      blockName,
+      attendanceMode: includeAttendance ? attendanceMode : null,
+      verifiedOnly: includeAttendance ? verifiedOnly : null,
+    },
     request,
   });
+
+  function styleSheet(sheet: ExcelJS.Worksheet, headers: string[], freezeCols: number) {
+    sheet.getRow(1).font = { bold: true };
+    sheet.views = [{ state: 'frozen', xSplit: Math.min(freezeCols, headers.length), ySplit: 1 }];
+    for (let index = 0; index < headers.length; index += 1) {
+      sheet.getColumn(index + 1).width = Math.max(12, Math.min(28, String(headers[index]).length + 2));
+    }
+  }
 
   if (format === 'xlsx') {
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'CPHIA Admin';
-    const sheet = workbook.addWorksheet('Volunteers');
-    sheet.columns = selected.map((col, index) => ({
-      header: labels[index],
-      key: col,
-      width: Math.max(14, labels[index]!.length + 4),
-    }));
-    for (const row of rows) {
-      sheet.addRow(row);
+    const sheet = workbook.addWorksheet(includeAttendance ? 'Volunteers + score' : 'Volunteers');
+    sheet.addRow(mainHeaders);
+    for (const row of mainRecords) sheet.addRow(row);
+    // Freeze ID + name columns so score stays readable while scrolling.
+    styleSheet(sheet, mainHeaders, Math.min(4, identityHeaders.length));
+
+    if (includeAttendance && includeDayColumns && dayHeaders.length) {
+      const daySheet = workbook.addWorksheet('Attendance by day');
+      const daySheetHeaders = [...identityHeaders, ...dayHeaders];
+      daySheet.addRow(daySheetHeaders);
+      for (const row of identityRows) {
+        daySheet.addRow([
+          ...row.cells,
+          ...(dayByPersonId.get(row.id) ?? dayHeaders.map(() => '')),
+        ]);
+      }
+      styleSheet(daySheet, daySheetHeaders, Math.min(4, identityHeaders.length));
     }
-    sheet.getRow(1).font = { bold: true };
+
     const buffer = await workbook.xlsx.writeBuffer();
     return new NextResponse(Buffer.from(buffer as ArrayBuffer), {
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'Content-Disposition': `attachment; filename="cphia-volunteers-${stamp}.xlsx"`,
+        'Content-Disposition': `attachment; filename="${filenameBase}.xlsx"`,
       },
     });
   }
 
-  const csvRows = rows.map((row) => selected.map((col) => csvCell(row[col])).join(','));
-  const csv = [labels.map(csvCell).join(','), ...csvRows].join('\n');
+  // CSV keeps one flat file: summary first, then optional day columns.
+  const csvHeaders = [...mainHeaders, ...dayHeaders];
+  const csvRecords = identityRows.map((row) => [
+    ...row.cells,
+    ...(summaryByPersonId.get(row.id) ?? summaryHeaders.map(() => '')),
+    ...(includeDayColumns ? (dayByPersonId.get(row.id) ?? dayHeaders.map(() => '')) : []),
+  ]);
+  const csv = [
+    csvHeaders.map(csvCell).join(','),
+    ...csvRecords.map((row) => row.map(csvCell).join(',')),
+  ].join('\n');
 
   return new NextResponse(csv, {
     headers: {
       'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': `attachment; filename="cphia-volunteers-${stamp}.csv"`,
+      'Content-Disposition': `attachment; filename="${filenameBase}.csv"`,
     },
   });
 }
