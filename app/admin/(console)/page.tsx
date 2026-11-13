@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { CalendarCheck, CalendarRange, ClipboardList, Clock3, Users } from 'lucide-react';
+import { CalendarCheck, CalendarRange, ClipboardList, Clock3, Radio, Users } from 'lucide-react';
 import {
   HEALTH_SUBSECTORS,
   SECTORS,
@@ -40,6 +40,10 @@ type BoardShift = {
   end: string;
   capacity: number;
   present: number;
+  late?: number;
+  gap?: number;
+  phase?: 'live' | 'upcoming' | 'ended';
+  sectorLabel?: string;
   cohort: string;
 };
 
@@ -54,6 +58,8 @@ type Overview = {
   cohorts: number;
   shiftsToday: number;
   checkedInToday: number;
+  liveShifts?: number;
+  capacityGapTotal?: number;
   formsPublished: number;
   team: number;
   todayBoard: BoardShift[];
@@ -113,8 +119,10 @@ export default function AdminDashboardPage() {
         if (!cancelled) setNotice('Connection is slow — still syncing dashboard…');
       }, SLOW_MS);
 
-      const date = new Date().toLocaleDateString('en-CA');
-      const params = new URLSearchParams({ date });
+      const now = new Date();
+      const date = now.toLocaleDateString('en-CA');
+      const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const params = new URLSearchParams({ date, time });
       if (sector) params.set('sector', sector);
       if (subsector) params.set('subsector', subsector);
 
@@ -190,12 +198,28 @@ export default function AdminDashboardPage() {
   const showSectors = !data || hasCapability(session, 'dashboard.sectors');
   const showFloor = !data || hasCapability(session, 'dashboard.floor');
   const showRecent = !data || hasCapability(session, 'dashboard.recent');
+  const showReports = !data || hasCapability(session, 'attendance.reports');
   const cards = [
     { label: 'Volunteers', value: metrics.total, note: `${metrics.pending} pending · ${metrics.approved} approved`, href: volunteersHref(sector, subsector), icon: Users, feature: 'volunteers' as const },
-    { label: 'On duty today', value: data?.shiftsToday ?? 0, note: `${data?.checkedInToday ?? 0} checked in`, href: href('/admin/attendance'), icon: CalendarCheck, feature: 'attendance' as const },
+    {
+      label: 'Active floor',
+      value: data?.liveShifts ?? 0,
+      note: `${data?.checkedInToday ?? 0} checked in · ${data?.shiftsToday ?? 0} shifts today`,
+      href: href(sector ? `/admin/floor?sector=${encodeURIComponent(sector)}` : '/admin/floor'),
+      icon: Radio,
+      feature: 'floor' as const,
+    },
+    {
+      label: 'Checked in today',
+      value: data?.checkedInToday ?? 0,
+      note: data?.capacityGapTotal ? `Gap ${data.capacityGapTotal} seats still open` : 'Unique people marked present / late',
+      href: href('/admin/attendance'),
+      icon: CalendarCheck,
+      feature: 'attendance' as const,
+    },
     { label: 'Open cohorts', value: data?.cohorts ?? 0, note: 'Planning, live, and active events', href: href('/admin/cohorts'), icon: CalendarRange, feature: 'cohorts' as const },
     { label: 'Live forms', value: data?.formsPublished ?? 0, note: 'Published briefings and checklists', href: href('/admin/forms'), icon: ClipboardList, feature: 'forms' as const },
-    { label: 'Shifts', value: data?.shiftsToday ?? 0, note: 'Roster blocks scheduled today', href: href('/admin/shifts'), icon: Clock3, feature: 'shifts' as const },
+    { label: 'Shifts today', value: data?.shiftsToday ?? 0, note: 'Roster blocks scheduled today', href: href('/admin/shifts'), icon: Clock3, feature: 'shifts' as const },
   ].filter((card) => showMetrics && (!data || hasFeature(session, card.feature)));
 
   const showSubsectorFilter = sectorHasSubsectors(sector);
@@ -252,9 +276,9 @@ export default function AdminDashboardPage() {
       <p className="text-sm text-zinc-400">Showing: <span className="text-[#f6e7b2]">{filterNote}</span></p>
 
       {showMetrics ? (
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
         {loading
-          ? Array.from({ length: 4 }).map((_, index) => (
+          ? Array.from({ length: 6 }).map((_, index) => (
               <Card key={index}><CardHeader><Skeleton className="h-4 w-24" /><Skeleton className="h-8 w-16" /></CardHeader></Card>
             ))
           : cards.map((card) => {
@@ -349,23 +373,76 @@ export default function AdminDashboardPage() {
 
         {showFloor ? (
         <Card>
-          <CardHeader>
-            <CardTitle>Today’s floor</CardTitle>
-            <CardDescription>Shifts scheduled for today and how many people are marked in.</CardDescription>
+          <CardHeader className="gap-2">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <CardTitle>Active floor</CardTitle>
+                <CardDescription>
+                  Live and upcoming shifts
+                  {data?.liveShifts ? ` · ${data.liveShifts} live now` : ''}
+                  {data?.capacityGapTotal ? ` · gap ${data.capacityGapTotal}` : ''}.
+                </CardDescription>
+              </div>
+              <div className="flex flex-wrap gap-2 text-sm">
+                <Link
+                  href={href(sector ? `/admin/floor?sector=${encodeURIComponent(sector)}` : '/admin/floor')}
+                  className="text-[#e7c15a] hover:underline"
+                >
+                  Open live board
+                </Link>
+                {showReports ? (
+                  <Link href={href('/admin/attendance/reports')} className="text-zinc-400 hover:text-[#e7c15a] hover:underline">
+                    Reports
+                  </Link>
+                ) : null}
+              </div>
+            </div>
           </CardHeader>
           <CardContent className="grid gap-2">
             {loading ? <Skeleton className="h-16 w-full" /> : null}
             {(data?.todayBoard ?? []).map((shift) => (
-              <Link key={shift.id} href={href(`/admin/attendance?shiftId=${shift.id}`)} className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/25 px-3 py-3 text-sm hover:bg-white/5">
-                <div>
-                  <p className="font-medium text-white">{shift.name}</p>
-                  <p className="text-xs text-zinc-400">{shift.cohort} · {shift.start}–{shift.end} · {shift.location}</p>
+              <Link
+                key={shift.id}
+                href={href(`/admin/attendance?shiftId=${shift.id}`)}
+                className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/25 px-3 py-3 text-sm hover:bg-white/5"
+              >
+                <div className="min-w-0">
+                  <p className="flex flex-wrap items-center gap-2 font-medium text-white">
+                    <span className="truncate">{shift.name}</span>
+                    {shift.phase === 'live' ? (
+                      <span className="rounded-full border border-emerald-500/40 bg-emerald-500/15 px-2 py-0.5 text-[10px] uppercase tracking-wide text-emerald-300">
+                        Live
+                      </span>
+                    ) : shift.phase === 'upcoming' ? (
+                      <span className="rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-sky-200">
+                        Next
+                      </span>
+                    ) : null}
+                  </p>
+                  <p className="truncate text-xs text-zinc-400">
+                    {shift.cohort} · {shift.start}–{shift.end}
+                    {shift.sectorLabel ? ` · ${shift.sectorLabel}` : ''}
+                    {shift.location ? ` · ${shift.location}` : ''}
+                  </p>
                 </div>
-                <p className="text-right text-sm text-[#f6e7b2]">{shift.present}{shift.capacity ? ` / ${shift.capacity}` : ''}</p>
+                <div className="shrink-0 text-right">
+                  <p className="text-sm text-[#f6e7b2]">
+                    {shift.present}{shift.capacity ? ` / ${shift.capacity}` : ''}
+                  </p>
+                  {(shift.gap ?? 0) > 0 ? (
+                    <p className="text-[11px] text-rose-300">Gap {shift.gap}</p>
+                  ) : shift.late ? (
+                    <p className="text-[11px] text-amber-300">{shift.late} late</p>
+                  ) : null}
+                </div>
               </Link>
             ))}
             {!loading && (data?.todayBoard.length ?? 0) === 0 ? (
-              <p className="text-sm text-zinc-400">No shifts on today’s date yet. Add one from Shifts.</p>
+              <p className="text-sm text-zinc-400">
+                {sector
+                  ? `No ${sector} shifts on today’s board yet.`
+                  : 'No shifts on today’s date yet. Add one from Shifts.'}
+              </p>
             ) : null}
           </CardContent>
         </Card>

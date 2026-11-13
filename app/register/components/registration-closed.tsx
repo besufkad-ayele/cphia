@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { CphiaLogo } from '@/components/brand/cphia-logo';
+import { href } from '@/lib/app-href';
 import { cn } from '@/lib/utils';
 import type { AppLocale } from '../i18n';
 import { getRegisterTranslations } from '../i18n';
@@ -73,12 +74,20 @@ export function RegistrationClosed({
           {t('closed.registeredHint')}
         </p>
 
-        <Link
-          href="/"
-          className="mt-10 inline-flex h-11 items-center justify-center rounded-full border border-white/20 bg-white/10 px-6 text-sm font-semibold text-white backdrop-blur-md transition hover:border-white/35 hover:bg-white/15"
-        >
-          {t('closed.homeCta')}
-        </Link>
+        <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
+          <Link
+            href={href('/status')}
+            className="inline-flex h-11 items-center justify-center rounded-full bg-[#F5C518] px-6 text-sm font-semibold text-[#1a1a1a] transition hover:bg-[#e6b70f]"
+          >
+            Check application status
+          </Link>
+          <Link
+            href="/"
+            className="inline-flex h-11 items-center justify-center rounded-full border border-white/20 bg-white/10 px-6 text-sm font-semibold text-white backdrop-blur-md transition hover:border-white/35 hover:bg-white/15"
+          >
+            {t('closed.homeCta')}
+          </Link>
+        </div>
       </section>
     </AppShell>
   );

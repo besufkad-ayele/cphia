@@ -4,6 +4,18 @@ import { dbError, isMissingTable, requireFeature } from '@/app/lib/admin/guard';
 import { hasFeature } from '@/app/lib/admin/permissions';
 import { buildDemographics, type DemographicsSummary } from '@/app/lib/admin/demographics';
 import {
+  capacityGap,
+  localDateParam,
+  localTimeParam,
+  shiftMatchesSectorFilter,
+  shiftPhase,
+  shiftSectorLabel,
+  sortFloorShifts,
+  summarizeMarks,
+  uniqueCheckedInPeople,
+  type FloorMark,
+} from '@/app/lib/admin/floor-board';
+import {
   applyRegistrationFilters,
   fetchAllPaged,
   parseSector,
@@ -12,16 +24,23 @@ import {
   sectorBreakdown,
 } from '@/app/lib/admin/registration-filters';
 import { deriveAdminStatus } from '@/app/lib/admin/status';
+import { supervisedTeamIds } from '@/app/lib/admin/team-scope';
 import type { RegistrationSummary } from '@/app/lib/admin/types';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
 
 export const runtime = 'nodejs';
 
+function one<T>(value: T | T[] | null | undefined): T | null {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
+}
+
 export async function GET(request: NextRequest) {
   const gate = await requireFeature(request, 'dashboard');
   if (!gate.ok) return gate.error;
 
-  const today = request.nextUrl.searchParams.get('date') || new Date().toISOString().slice(0, 10);
+  const today = localDateParam(request.nextUrl.searchParams.get('date'));
+  const time = localTimeParam(request.nextUrl.searchParams.get('time'));
   const sector = parseSector(request.nextUrl.searchParams.get('sector'));
   const subsector = parseSubsector(request.nextUrl.searchParams.get('subsector'));
   const session = gate.session;
@@ -29,6 +48,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const supabase = getSupabaseAdmin();
+    const scopedTeamIds = await supervisedTeamIds(supabase, session);
     const metrics = await registrationStatusMetrics(supabase, filters);
 
     let recent: RegistrationSummary[] = [];
@@ -96,16 +116,39 @@ export async function GET(request: NextRequest) {
     let cohorts = 0;
     let shiftsToday = 0;
     let checkedInToday = 0;
+    let liveShifts = 0;
+    let capacityGapTotal = 0;
     let formsPublished = 0;
     let team = 0;
-    let todayBoard: Array<{ id: string; name: string; location: string; start: string; end: string; capacity: number; present: number; cohort: string }> = [];
+    let todayBoard: Array<{
+      id: string;
+      name: string;
+      location: string;
+      start: string;
+      end: string;
+      capacity: number;
+      present: number;
+      late: number;
+      gap: number;
+      phase: 'live' | 'upcoming' | 'ended';
+      sectorLabel: string;
+      cohort: string;
+    }> = [];
 
-    const shiftResult = await supabase
+    let shiftsQuery = supabase
       .from('ops_shifts')
-      .select('id, name, location, start_time, end_time, capacity, ops_cohorts(code), ops_attendance(status)')
+      .select('id, name, location, start_time, end_time, capacity, sector, sectors, kind, team_id, ops_cohorts(code), ops_attendance(status, registration_id)')
       .eq('shift_date', today)
-      .order('start_time', { ascending: true })
-      .limit(6);
+      .order('start_time', { ascending: true });
+
+    const emptyFloorScope = Boolean(scopedTeamIds && !scopedTeamIds.length);
+    if (scopedTeamIds?.length) {
+      shiftsQuery = shiftsQuery.eq('kind', 'ops').in('team_id', scopedTeamIds);
+    }
+
+    const shiftResult = emptyFloorScope
+      ? { data: [] as never[], error: null }
+      : await shiftsQuery;
 
     if (shiftResult.error && isMissingTable(shiftResult.error)) {
       migrationRequired = true;
@@ -122,33 +165,52 @@ export async function GET(request: NextRequest) {
       cohorts = cohortCount.count ?? 0;
       formsPublished = formCount.count ?? 0;
       team = teamCount.count ?? 0;
-      shiftsToday = shiftResult.data?.length ?? 0;
-      todayBoard = ((shiftResult.data ?? []) as Array<{
+
+      const allMarks: FloorMark[] = [];
+      const mapped = ((shiftResult.data ?? []) as Array<{
         id: string;
         name: string;
         location: string | null;
         start_time: string;
         end_time: string;
         capacity: number;
-        ops_attendance: { status?: string }[] | null;
+        sector?: string | null;
+        sectors?: string[] | null;
+        ops_attendance: FloorMark[] | null;
         ops_cohorts: { code?: string } | { code?: string }[] | null;
-      }>).map((shift) => {
-        const marks = Array.isArray(shift.ops_attendance) ? shift.ops_attendance : [];
-        const present = marks.filter((mark) => mark.status === 'present' || mark.status === 'late').length;
-        const cohortJoin = shift.ops_cohorts;
-        const cohortCode = Array.isArray(cohortJoin) ? cohortJoin[0]?.code : cohortJoin?.code;
-        checkedInToday += present;
-        return {
-          id: shift.id,
-          name: shift.name,
-          location: shift.location || 'Location not set',
-          start: String(shift.start_time).slice(0, 5),
-          end: String(shift.end_time).slice(0, 5),
-          capacity: shift.capacity,
-          present,
-          cohort: cohortCode || 'Cohort',
-        };
-      });
+      }>)
+        .filter((shift) => shiftMatchesSectorFilter(shift, sector))
+        .map((shift) => {
+          const marks = Array.isArray(shift.ops_attendance) ? shift.ops_attendance : [];
+          allMarks.push(...marks);
+          const counts = summarizeMarks(marks);
+          const gap = capacityGap(shift.capacity || 0, counts.checkedIn);
+          const phase = shiftPhase(shift.start_time, shift.end_time, time);
+          const cohortJoin = one(shift.ops_cohorts);
+          return {
+            id: shift.id,
+            name: shift.name,
+            location: shift.location || 'Location not set',
+            start: String(shift.start_time).slice(0, 5),
+            end: String(shift.end_time).slice(0, 5),
+            capacity: shift.capacity || 0,
+            present: counts.checkedIn,
+            late: counts.late,
+            gap,
+            phase,
+            sectorLabel: shiftSectorLabel(shift),
+            cohort: cohortJoin?.code || 'Cohort',
+          };
+        });
+
+      const ordered = sortFloorShifts(mapped);
+      shiftsToday = ordered.length;
+      liveShifts = ordered.filter((shift) => shift.phase === 'live').length;
+      capacityGapTotal = ordered.reduce((sum, shift) => sum + shift.gap, 0);
+      checkedInToday = uniqueCheckedInPeople(allMarks);
+      // Prefer live + upcoming on the dashboard strip; fall back to ended if the day is over.
+      const preferred = ordered.filter((shift) => shift.phase !== 'ended');
+      todayBoard = (preferred.length ? preferred : ordered).slice(0, 8);
     }
 
     return NextResponse.json({
@@ -160,12 +222,16 @@ export async function GET(request: NextRequest) {
       cohorts,
       shiftsToday,
       checkedInToday,
+      liveShifts,
+      capacityGapTotal,
       formsPublished,
       team,
       todayBoard,
       migrationRequired,
       permissions: session.permissions,
       role: session.role,
+      date: today,
+      time,
     });
   } catch (error) {
     console.error('admin_overview_error', error);

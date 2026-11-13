@@ -26,6 +26,7 @@ import {
   requestBrandTransition,
 } from '@/app/lib/brand-transition';
 import { isRegistrationOpen } from '@/app/lib/registration-open';
+import { href } from '@/lib/app-href';
 
 const registrationOpen = isRegistrationOpen();
 
@@ -181,10 +182,19 @@ export default function PublicHomePage() {
   const goToRegister = useCallback(() => {
     if (consumePublicFirstTransition()) {
       requestBrandTransition({
-        label: registrationOpen ? 'Opening registration' : 'Registration closed',
+        label: 'Opening registration',
       });
     }
     router.push('/register');
+  }, [router]);
+
+  const goToStatus = useCallback(() => {
+    if (consumePublicFirstTransition()) {
+      requestBrandTransition({
+        label: 'Checking application status',
+      });
+    }
+    router.push(href('/status'));
   }, [router]);
 
   const goNext = useCallback(() => {
@@ -231,20 +241,33 @@ export default function PublicHomePage() {
             priority
             className="h-10 w-auto max-w-[170px] object-contain object-left sm:h-12 sm:max-w-[240px]"
           />
-          <Link
-            href="/register"
-            onClick={() => {
-              if (consumePublicFirstTransition()) {
-                requestBrandTransition({
-                  label: registrationOpen ? 'Opening registration' : 'Registration closed',
-                });
-              }
-            }}
-            className="inline-flex h-11 shrink-0 items-center gap-2 rounded-lg bg-white/15 px-4 text-sm font-semibold text-white ring-1 ring-white/35 backdrop-blur-md hover:bg-white/25"
-          >
-            {registrationOpen ? 'Register' : 'Status'}
-            <ArrowRight className="size-4" />
-          </Link>
+          <div className="flex shrink-0 items-center gap-2">
+            <Link
+              href={href('/status')}
+              onClick={() => {
+                if (consumePublicFirstTransition()) {
+                  requestBrandTransition({ label: 'Checking application status' });
+                }
+              }}
+              className="inline-flex h-11 items-center gap-2 rounded-lg bg-white/10 px-3 text-sm font-semibold text-white ring-1 ring-white/30 backdrop-blur-md hover:bg-white/20 sm:px-4"
+            >
+              Status
+            </Link>
+            {registrationOpen ? (
+              <Link
+                href="/register"
+                onClick={() => {
+                  if (consumePublicFirstTransition()) {
+                    requestBrandTransition({ label: 'Opening registration' });
+                  }
+                }}
+                className="inline-flex h-11 items-center gap-2 rounded-lg bg-white/15 px-4 text-sm font-semibold text-white ring-1 ring-white/35 backdrop-blur-md hover:bg-white/25"
+              >
+                Register
+                <ArrowRight className="size-4" />
+              </Link>
+            ) : null}
+          </div>
         </header>
 
         <div
@@ -353,8 +376,8 @@ export default function PublicHomePage() {
               </h2>
               <p className="mt-4 max-w-2xl text-base leading-7 text-white/85 sm:text-lg">
                 {registrationOpen
-                  ? 'Applications close soon. Slide below to continue to registration for the CPHIA-26 volunteer cohort.'
-                  : 'We are no longer accepting new volunteer applications. Already registered on this device? Open status to view your ID.'}
+                  ? 'Applications close soon. Slide below to continue to registration for the CPHIA-26 volunteer cohort. Already applied? Check your status anytime.'
+                  : 'We are no longer accepting new volunteer applications. Already applied? Check your status with your registration ID and phone number.'}
               </p>
             </section>
           </div>
@@ -375,14 +398,24 @@ export default function PublicHomePage() {
           </div>
           {last ? (
             registrationOpen ? (
-              <SlideToAction label="Slide to start your application" onComplete={goToRegister} />
+              <div className="grid gap-2">
+                <SlideToAction label="Slide to start your application" onComplete={goToRegister} />
+                <button
+                  type="button"
+                  onClick={goToStatus}
+                  className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full border border-white/25 bg-transparent text-sm font-semibold text-white/90 hover:bg-white/10"
+                >
+                  Already applied? Check status
+                  <ArrowRight className="size-4" />
+                </button>
+              </div>
             ) : (
               <button
                 type="button"
-                onClick={goToRegister}
+                onClick={goToStatus}
                 className="inline-flex h-14 w-full items-center justify-center gap-2 rounded-full border border-white/30 bg-white/10 text-sm font-semibold text-white backdrop-blur-md hover:bg-white/15"
               >
-                View registration status
+                Check application status
                 <ArrowRight className="size-4" />
               </button>
             )
