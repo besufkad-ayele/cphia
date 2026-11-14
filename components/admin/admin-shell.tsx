@@ -12,7 +12,6 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
-  MonitorOff,
   PanelLeftClose,
   PanelLeftOpen,
   Radio,
@@ -22,7 +21,6 @@ import {
   UsersRound,
   X,
 } from 'lucide-react';
-import { toast } from 'sonner';
 import { canViewOpsAudit } from '@/app/lib/admin/ops-audit-access';
 import {
   ADMIN_FEATURES,
@@ -34,6 +32,7 @@ import {
 } from '@/app/lib/admin/permissions';
 import { AttendanceFlag } from '@/components/admin/attendance-flag';
 import { ConnectionStatusProvider, useConnectionStatus } from '@/components/admin/connection-status';
+import { DeviceSessionsButton } from '@/components/admin/device-sessions-sheet';
 import { AdminMobileDock } from '@/components/admin/mobile-dock';
 import { CphiaLoader } from '@/components/brand/cphia-loader';
 import { CphiaLogo, CphiaMark } from '@/components/brand/cphia-logo';
@@ -80,8 +79,6 @@ function AdminShellInner({
   const { notice } = useConnectionStatus();
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [revokingOthers, setRevokingOthers] = useState(false);
-  const isSuperAdmin = role === 'super_admin';
   const showOpsAudit = canViewOpsAudit({ role, email });
 
   useEffect(() => {
@@ -119,30 +116,6 @@ function AdminShellInner({
   async function signOut() {
     await fetch('/api/admin/logout', { method: 'POST' });
     router.replace('/admin/login');
-  }
-
-  async function revokeOtherDevices() {
-    if (revokingOthers) return;
-    if (!window.confirm('Sign out all other devices? This device stays signed in.')) return;
-    setRevokingOthers(true);
-    try {
-      const response = await fetch('/api/admin/sessions/revoke-others', { method: 'POST' });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(
-          typeof payload?.message === 'string'
-            ? payload.message
-            : payload?.error === 'FORBIDDEN'
-              ? 'Only super admins can revoke other devices.'
-              : 'Could not sign out other devices.',
-        );
-      }
-      toast.success('Other devices signed out.');
-    } catch (reason) {
-      toast.error(reason instanceof Error ? reason.message : 'Could not sign out other devices.');
-    } finally {
-      setRevokingOthers(false);
-    }
   }
 
   const items = ADMIN_FEATURES.filter((item) => permissions && hasFeature({ role, permissions }, item.key));
@@ -269,18 +242,7 @@ function AdminShellInner({
               <p className="truncate text-xs capitalize text-zinc-400">{roleLabel}</p>
             </>
           ) : null}
-          {isSuperAdmin ? (
-            <Button
-              variant="ghost"
-              className={cn('text-zinc-300', expanded ? 'mt-3 h-10 w-full justify-start' : 'mt-1 size-11')}
-              disabled={revokingOthers}
-              title="Sign out other devices"
-              onClick={() => void revokeOtherDevices()}
-            >
-              <MonitorOff className="size-4" />
-              {expanded ? (revokingOthers ? 'Signing out…' : 'Other devices') : <span className="sr-only">Sign out other devices</span>}
-            </Button>
-          ) : null}
+          <DeviceSessionsButton detailed={expanded} />
           <Button variant="ghost" className={cn('text-zinc-300', expanded ? 'mt-1 h-10 w-full justify-start' : 'size-11')} onClick={() => void signOut()}>
             <LogOut className="size-4" />
             {expanded ? 'Sign out' : <span className="sr-only">Sign out</span>}
@@ -311,11 +273,7 @@ function AdminShellInner({
                 </p>
               ) : null}
               <div className="flex items-center gap-1 md:hidden">
-                {isSuperAdmin ? (
-                  <Button variant="ghost" size="sm" disabled={revokingOthers} onClick={() => void revokeOtherDevices()}>
-                    {revokingOthers ? 'Revoking…' : 'Other devices'}
-                  </Button>
-                ) : null}
+                <DeviceSessionsButton compact className="h-8 px-2" />
                 <Button variant="ghost" size="sm" onClick={() => void signOut()}>
                   Sign out
                 </Button>
@@ -377,17 +335,7 @@ function AdminShellInner({
             <nav className="flex flex-1 flex-col gap-1 overflow-y-auto">
               <NavLinks detailed />
             </nav>
-            {isSuperAdmin ? (
-              <Button
-                variant="ghost"
-                className="mt-3 h-10 w-full justify-start text-zinc-300"
-                disabled={revokingOthers}
-                onClick={() => void revokeOtherDevices()}
-              >
-                <MonitorOff className="size-4" />
-                {revokingOthers ? 'Signing out…' : 'Sign out other devices'}
-              </Button>
-            ) : null}
+            <DeviceSessionsButton detailed className="mt-3" />
           </div>
         </div>
       ) : null}

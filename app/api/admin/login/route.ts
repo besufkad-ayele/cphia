@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { logActivity } from '@/app/lib/admin/activity';
+import { createDeviceSession } from '@/app/lib/admin/device-sessions';
 import { cleanPermissions, defaultPermissions, firstAllowedAdminHref } from '@/app/lib/admin/permissions';
 import { getSessionSecret, setAdminCookie, signAdminJwt } from '@/app/lib/admin/session';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
@@ -43,6 +44,7 @@ export async function POST(request: NextRequest) {
       typeof admin.session_version === 'number' && Number.isFinite(admin.session_version)
         ? Math.max(0, Math.floor(admin.session_version))
         : 0;
+    const deviceSessionId = await createDeviceSession({ adminId: admin.id, request });
     const session = {
       id: admin.id,
       email: admin.email,
@@ -51,6 +53,7 @@ export async function POST(request: NextRequest) {
       roleKey: typeof admin.role_key === 'string' && admin.role_key ? admin.role_key : role,
       permissions: role === 'super_admin' ? defaultPermissions('super_admin') : stored.length ? stored : defaultPermissions('admin'),
       sessionVersion,
+      sessionId: deviceSessionId,
     } as const;
     const token = await signAdminJwt(session);
     await logActivity({
@@ -59,6 +62,7 @@ export async function POST(request: NextRequest) {
       summary: `${session.fullName} signed in`,
       entityType: 'admin',
       entityId: session.id,
+      metadata: { deviceSessionId, deviceLabel: deviceSessionId ? undefined : 'untracked' },
       request,
     });
     const response = NextResponse.json({

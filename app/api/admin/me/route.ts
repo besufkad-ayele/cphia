@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import {
+  createDeviceSession,
+  isDeviceSessionActive,
+  touchDeviceSession,
+} from '@/app/lib/admin/device-sessions';
 import { cleanPermissions, defaultPermissions } from '@/app/lib/admin/permissions';
 import {
   setAdminCookie,
@@ -68,6 +73,16 @@ export async function GET(request: NextRequest) {
       return unauthorized();
     }
 
+    let sessionId = session.sessionId;
+    if (sessionId) {
+      const active = await isDeviceSessionActive(session.id, sessionId);
+      if (!active) return unauthorized();
+      await touchDeviceSession(sessionId, request);
+    } else {
+      // Legacy cookie without device id — attach this browser as a tracked device.
+      sessionId = await createDeviceSession({ adminId: session.id, request });
+    }
+
     const role = admin.role === 'super_admin' ? 'super_admin' : 'admin';
     const stored = cleanPermissions(admin.permissions);
     const next = {
@@ -83,6 +98,7 @@ export async function GET(request: NextRequest) {
             ? stored
             : defaultPermissions('admin'),
       sessionVersion: hasVersionColumn ? liveVersion : session.sessionVersion,
+      sessionId,
     } as const;
 
     const response = NextResponse.json(next);

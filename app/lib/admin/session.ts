@@ -1,6 +1,7 @@
 import { SignJWT, jwtVerify } from 'jose';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { isDeviceSessionActive } from '@/app/lib/admin/device-sessions';
 import { cleanPermissions, defaultPermissions, type PermissionKey } from '@/app/lib/admin/permissions';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
 
@@ -15,6 +16,8 @@ export type AdminSession = {
   roleKey: string;
   permissions: PermissionKey[];
   sessionVersion: number;
+  /** Per-device session row id — used to revoke selected devices. */
+  sessionId: string | null;
 };
 
 function getJwtSecret() {
@@ -44,6 +47,7 @@ export async function signAdminJwt(admin: AdminSession): Promise<string> {
     roleKey: admin.roleKey,
     permissions: admin.permissions,
     sv: admin.sessionVersion,
+    ...(admin.sessionId ? { sid: admin.sessionId } : {}),
   })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(admin.id)
@@ -66,6 +70,7 @@ export async function verifyAdminJwt(token: string | undefined): Promise<AdminSe
     const roleKey = typeof payload.roleKey === 'string' && payload.roleKey ? payload.roleKey : role;
     const stored = cleanPermissions(payload.permissions);
     const permissions = role === 'super_admin' ? defaultPermissions('super_admin') : stored.length ? stored : defaultPermissions('admin');
+    const sessionId = typeof payload.sid === 'string' && payload.sid ? payload.sid : null;
     return {
       id,
       email,
@@ -74,6 +79,7 @@ export async function verifyAdminJwt(token: string | undefined): Promise<AdminSe
       roleKey,
       permissions,
       sessionVersion: normalizeSessionVersion(payload.sv),
+      sessionId,
     };
   } catch {
     return null;
@@ -108,6 +114,12 @@ export async function verifyAdminSession(request: NextRequest): Promise<AdminSes
 
     const liveVersion = normalizeSessionVersion(data.session_version);
     if (session.sessionVersion !== liveVersion) return null;
+
+    if (session.sessionId) {
+      const active = await isDeviceSessionActive(session.id, session.sessionId);
+      if (!active) return null;
+    }
+
     return { ...session, sessionVersion: liveVersion };
   } catch {
     // Env / DB unavailable — keep signature-only auth so local misconfig does not soft-lock the desk.
