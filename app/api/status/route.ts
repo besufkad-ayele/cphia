@@ -35,7 +35,9 @@ export async function POST(request: NextRequest) {
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase
       .from('registrations')
-      .select('registration_id, first_name, review_status, email_status, device_flag, review_note, sector, phone, secondary_phone')
+      .select(
+        'registration_id, first_name, review_status, email_status, device_flag, review_note, sector, health_subsectors, role_subsectors, phone, secondary_phone',
+      )
       .eq('registration_id', registrationId)
       .maybeSingle();
 

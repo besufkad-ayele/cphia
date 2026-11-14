@@ -198,7 +198,13 @@ export default function StatusCheckPage() {
                 {state.result.sector ? (
                   <div className="flex justify-between gap-3">
                     <dt className="text-white/55">Sector</dt>
-                    <dd className="text-white">{state.result.sector}</dd>
+                    <dd className="text-right text-white">{state.result.sector}</dd>
+                  </div>
+                ) : null}
+                {state.result.subsector ? (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-white/55">Sub-sector</dt>
+                    <dd className="text-right text-white">{state.result.subsector}</dd>
                   </div>
                 ) : null}
               </dl>

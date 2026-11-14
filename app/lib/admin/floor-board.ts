@@ -5,7 +5,66 @@ export type FloorPhase = 'live' | 'upcoming' | 'ended';
 export type FloorMark = {
   status?: string | null;
   registration_id?: string | null;
+  registrations?:
+    | {
+        first_name?: string | null;
+        middle_name?: string | null;
+        last_name?: string | null;
+        registration_id?: string | null;
+      }
+    | Array<{
+        first_name?: string | null;
+        middle_name?: string | null;
+        last_name?: string | null;
+        registration_id?: string | null;
+      }>
+    | null;
 };
+
+export type FloorCheckedInPerson = {
+  id: string;
+  registrationId: string;
+  name: string;
+  status: 'present' | 'late';
+};
+
+function oneRelation<T>(value: T | T[] | null | undefined): T | null {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
+}
+
+export function volunteerDisplayName(mark: FloorMark) {
+  const person = oneRelation(mark.registrations);
+  const name = [person?.first_name, person?.middle_name, person?.last_name]
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+  return name || String(person?.registration_id || mark.registration_id || 'Volunteer');
+}
+
+/** Present/late people for a shift, newest status wins, capped for board UI. */
+export function checkedInPeople(marks: FloorMark[], limit = 12): FloorCheckedInPerson[] {
+  const byPerson = new Map<string, FloorCheckedInPerson>();
+  for (const mark of marks) {
+    if (mark.status !== 'present' && mark.status !== 'late') continue;
+    const id = String(mark.registration_id || '');
+    if (!id) continue;
+    const person = oneRelation(mark.registrations);
+    const next: FloorCheckedInPerson = {
+      id,
+      registrationId: String(person?.registration_id || ''),
+      name: volunteerDisplayName(mark),
+      status: mark.status,
+    };
+    const existing = byPerson.get(id);
+    if (!existing || (existing.status === 'late' && next.status === 'present')) {
+      byPerson.set(id, next);
+    }
+  }
+  return [...byPerson.values()]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .slice(0, limit);
+}
 
 export function localDateParam(value?: string | null) {
   const raw = String(value || '').trim();

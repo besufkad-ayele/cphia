@@ -3,6 +3,7 @@ import type { NextRequest } from 'next/server';
 import { parseSector } from '@/app/lib/admin/registration-filters';
 import {
   capacityGap,
+  checkedInPeople,
   localDateParam,
   localTimeParam,
   shiftMatchesSectorFilter,
@@ -82,7 +83,9 @@ export async function GET(request: NextRequest) {
     const scopedTeamIds = await supervisedTeamIds(supabase, session);
     let shiftsQuery = supabase
       .from('ops_shifts')
-      .select('id, name, shift_date, start_time, end_time, location, capacity, kind, team_id, sheet_status, cohort_id, sector, sectors, ops_cohorts(name, code), ops_teams(id, name, code), ops_attendance(status, registration_id)')
+      .select(
+        'id, name, shift_date, start_time, end_time, location, capacity, kind, team_id, sheet_status, cohort_id, sector, sectors, ops_cohorts(name, code), ops_teams(id, name, code), ops_attendance(status, registration_id, registrations(first_name, middle_name, last_name, registration_id))',
+      )
       .eq('shift_date', date)
       .order('start_time', { ascending: true });
     if (cohortId) shiftsQuery = shiftsQuery.eq('cohort_id', cohortId);
@@ -140,6 +143,7 @@ export async function GET(request: NextRequest) {
             current.shifts += 1;
             marksByTeam.set(team.id, current);
           }
+          const people = checkedInPeople(marks, 16);
           return {
             id: shift.id,
             name: shift.name,
@@ -160,6 +164,8 @@ export async function GET(request: NextRequest) {
             sectorLabel: shiftSectorLabel(shift),
             cohort: cohort ? { id: shift.cohort_id, name: cohort.name, code: cohort.code } : null,
             team: team ? { id: team.id, name: team.name, code: team.code } : null,
+            checkedInPeople: people,
+            checkedInMore: Math.max(0, counts.checkedIn - people.length),
           };
         }),
     );

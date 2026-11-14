@@ -23,6 +23,13 @@ type TeamRollup = {
   gap: number;
   shifts: number;
 };
+type FloorPerson = {
+  id: string;
+  registrationId: string;
+  name: string;
+  status: 'present' | 'late';
+};
+
 type FloorShift = {
   id: string;
   name: string;
@@ -43,6 +50,8 @@ type FloorShift = {
   sectorLabel?: string;
   cohort: { id: string; name: string; code: string } | null;
   team: { id: string; name: string; code: string } | null;
+  checkedInPeople?: FloorPerson[];
+  checkedInMore?: number;
 };
 
 type FloorPayload = {
@@ -78,56 +87,94 @@ function localNowTime() {
 
 function ShiftCard({ shift }: { shift: FloorShift }) {
   const live = shift.phase === 'live';
+  const people = shift.checkedInPeople ?? [];
   return (
     <div
       className={cn(
         'grid gap-3 rounded-2xl border px-4 py-3',
         live
           ? 'border-emerald-500/40 bg-emerald-500/10'
-          : 'border-white/10 bg-black/25',
+          : shift.phase === 'upcoming'
+            ? 'border-sky-500/25 bg-sky-500/5'
+            : 'border-white/10 bg-black/25',
       )}
     >
-      <div className="min-w-0">
-        <p className="flex flex-wrap items-center gap-2 font-medium text-white">
-          <span className="truncate">{shift.name}</span>
-          {live ? (
-            <span className="rounded-full border border-emerald-400/50 bg-emerald-500/20 px-2 py-0.5 text-[10px] uppercase tracking-wide text-emerald-200">
-              Live
-            </span>
-          ) : shift.phase === 'upcoming' ? (
-            <span className="rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-sky-200">
-              Up next
-            </span>
-          ) : (
-            <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
-              Ended
-            </span>
-          )}
-        </p>
-        <p className="text-sm text-zinc-400">
-          {shift.start}–{shift.end}
-          {shift.team ? ` · ${shift.team.name}` : ' · training'}
-          {shift.cohort ? ` · ${shift.cohort.code}` : ''}
-          {shift.sectorLabel ? ` · ${shift.sectorLabel}` : ''}
-          {' · '}{shift.sheetStatus}
-          {shift.location ? ` · ${shift.location}` : ''}
-        </p>
-        <p className="mt-1 text-xs text-zinc-500">
-          present {shift.present} · late {shift.late} · absent {shift.absent} · excused {shift.excused}
-          {shift.capacity > 0 ? ` · capacity ${shift.capacity}` : ''}
-          {' · '}marked {shift.totalMarked}
-        </p>
-      </div>
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className={cn('text-3xl font-semibold', shift.gap > 0 ? 'text-rose-300' : 'text-emerald-300')}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="flex flex-wrap items-center gap-2 font-medium text-white">
+            <span className="truncate">{shift.name}</span>
+            {live ? (
+              <span className="rounded-full border border-emerald-400/50 bg-emerald-500/20 px-2 py-0.5 text-[10px] uppercase tracking-wide text-emerald-200">
+                Live
+              </span>
+            ) : shift.phase === 'upcoming' ? (
+              <span className="rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-sky-200">
+                Up next
+              </span>
+            ) : (
+              <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                Ended
+              </span>
+            )}
+          </p>
+          <p className="text-sm text-zinc-400">
+            {shift.start}–{shift.end}
+            {shift.team ? ` · ${shift.team.name}` : ' · training'}
+            {shift.cohort ? ` · ${shift.cohort.code}` : ''}
+            {shift.sectorLabel ? ` · ${shift.sectorLabel}` : ''}
+            {shift.location ? ` · ${shift.location}` : ''}
+          </p>
+          <p className="mt-1 text-xs text-zinc-500">
+            {shift.checkedIn}/{shift.capacity || '—'} in
+            {' · '}present {shift.present} · late {shift.late} · absent {shift.absent}
+          </p>
+        </div>
+        <div className="shrink-0 text-right">
+          <p className={cn('text-4xl font-semibold tabular-nums leading-none', shift.gap > 0 ? 'text-rose-300' : 'text-emerald-300')}>
             {shift.gap}
           </p>
-          <p className="text-xs text-zinc-400">Capacity gap</p>
+          <p className="mt-1 text-[11px] uppercase tracking-[0.14em] text-zinc-500">
+            {shift.gap > 0 ? 'Seats open' : 'Full'}
+          </p>
         </div>
+      </div>
+
+      {people.length ? (
+        <div className="rounded-xl border border-white/8 bg-black/25 px-3 py-2">
+          <p className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">Checked in</p>
+          <ul className="mt-1.5 flex flex-wrap gap-1.5">
+            {people.map((person) => (
+              <li key={person.id}>
+                <Link
+                  href={href(`/admin/volunteers/${person.id}`)}
+                  className={cn(
+                    'inline-flex max-w-[14rem] items-center truncate rounded-full border px-2 py-0.5 text-[11px] transition hover:bg-white/10',
+                    person.status === 'late'
+                      ? 'border-amber-400/30 bg-amber-500/10 text-amber-100'
+                      : 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100',
+                  )}
+                  title={person.registrationId || person.name}
+                >
+                  {person.name}
+                  {person.status === 'late' ? ' · late' : ''}
+                </Link>
+              </li>
+            ))}
+            {(shift.checkedInMore ?? 0) > 0 ? (
+              <li className="inline-flex items-center rounded-full border border-white/10 px-2 py-0.5 text-[11px] text-zinc-400">
+                +{shift.checkedInMore} more
+              </li>
+            ) : null}
+          </ul>
+        </div>
+      ) : live ? (
+        <p className="text-xs text-zinc-500">No one checked in on this shift yet.</p>
+      ) : null}
+
+      <div className="flex flex-wrap gap-2">
         <Link
           href={href(`/admin/attendance?shiftId=${shift.id}`)}
-          className={cn(buttonVariants({ variant: live ? 'default' : 'outline', size: 'sm' }), 'w-full sm:w-fit')}
+          className={cn(buttonVariants({ variant: live ? 'default' : 'outline', size: 'sm' }), 'w-full sm:w-auto')}
         >
           Open sheet
         </Link>
@@ -146,22 +193,38 @@ function FloorPageInner() {
   );
   const [data, setData] = useState<FloorPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   async function load(nextDate = date, nextCohort = cohortId, nextSector = sector) {
-    const params = new URLSearchParams({
-      date: nextDate,
-      time: localNowTime(),
-    });
-    if (nextCohort) params.set('cohortId', nextCohort);
-    if (nextSector) params.set('sector', nextSector);
-    setData(await adminFetch<FloorPayload>(`/api/admin/floor?${params}`));
+    setRefreshing(true);
+    try {
+      const params = new URLSearchParams({
+        date: nextDate,
+        time: localNowTime(),
+      });
+      if (nextCohort) params.set('cohortId', nextCohort);
+      if (nextSector) params.set('sector', nextSector);
+      setData(await adminFetch<FloorPayload>(`/api/admin/floor?${params}`));
+      setUpdatedAt(new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      setError(null);
+    } finally {
+      setRefreshing(false);
+    }
   }
+
+  useEffect(() => {
+    const fromUrl = searchParams.get('sector') || '';
+    const next = (SECTORS as readonly string[]).includes(fromUrl) ? fromUrl : '';
+    if (next !== sector) setSector(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   useEffect(() => {
     load().catch((reason: Error) => setError(reason.message));
     const timer = window.setInterval(() => {
       load().catch(() => undefined);
-    }, 30000);
+    }, 15000);
     return () => window.clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date, cohortId, sector]);
@@ -184,14 +247,19 @@ function FloorPageInner() {
       <PageHeader
         kicker="LIVE"
         title="Live floor"
-        description="Active shifts first, then up next. Unique people for the day (morning or afternoon counts once). Refreshes every 30 seconds."
+        description="Who is on shift right now, seat gaps, and checked-in names. Unique people for the day. Auto-refreshes every 15 seconds."
       >
-        <Link
-          href={href('/admin/attendance/reports')}
-          className={cn(buttonVariants({ variant: 'outline' }), 'h-11')}
-        >
-          Attendance reports
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-zinc-500">
+            {refreshing ? 'Updating…' : updatedAt ? `Updated ${updatedAt}` : '—'}
+          </span>
+          <Link
+            href={href('/admin/attendance/reports')}
+            className={cn(buttonVariants({ variant: 'outline' }), 'h-11')}
+          >
+            Attendance reports
+          </Link>
+        </div>
       </PageHeader>
       <Banner message={error} />
       <Card>

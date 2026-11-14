@@ -17,9 +17,22 @@ export type PublicStatusResult = {
   message: string;
   reason: string | null;
   sector: string | null;
+  /** Combined health / role sub-sectors when present. */
+  subsector: string | null;
   supportEmail: string;
   supportWhatsApp: string;
 };
+
+function formatSubsectors(
+  health?: string[] | null,
+  roles?: string[] | null,
+) {
+  const values = [...(health ?? []), ...(roles ?? [])]
+    .map((item) => String(item || '').trim())
+    .filter(Boolean);
+  if (!values.length) return null;
+  return [...new Set(values)].join(', ');
+}
 
 /** Normalize public ID: accept CPHIA-26-123456 or bare 6-digit tail. */
 export function normalizeRegistrationId(raw: string) {
@@ -98,6 +111,8 @@ export function buildPublicStatusPayload(row: {
   device_flag?: string | null;
   review_note?: string | null;
   sector?: string | null;
+  health_subsectors?: string[] | null;
+  role_subsectors?: string[] | null;
 }): PublicStatusResult {
   const status = deriveAdminStatus(row.review_status, row.email_status, row.device_flag);
   const firstName = String(row.first_name || '').trim();
@@ -115,6 +130,7 @@ export function buildPublicStatusPayload(row: {
     message: copy.message,
     reason,
     sector: row.sector || null,
+    subsector: formatSubsectors(row.health_subsectors, row.role_subsectors),
     supportEmail: STATUS_SUPPORT_EMAIL,
     supportWhatsApp: STATUS_SUPPORT_WHATSAPP,
   };
