@@ -373,13 +373,20 @@ export async function POST(request: NextRequest) {
       { onConflict: 'shift_id,registration_id' },
     );
     if (error) return dbError(error);
+    const personName = volunteerDisplayName(volunteer);
+    const publicId = String(volunteer.registration_id || '');
     await logActivity({
       actor: gate.session,
       action: 'attendance.mark',
-      summary: `${gate.session.fullName} marked attendance as ${status}`,
-      entityType: 'attendance',
+      summary: `${gate.session.fullName} marked ${personName}${publicId ? ` (${publicId})` : ''} as ${status}`,
+      entityType: 'registration',
       entityId: registrationId,
-      metadata: { shiftId, registrationId, status, notes },
+      subject: {
+        id: volunteer.id,
+        registrationId: publicId,
+        name: personName,
+      },
+      metadata: { shiftId, registrationId, status, notes, publicId, personName },
       request,
     });
     return NextResponse.json({

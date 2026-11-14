@@ -23,9 +23,11 @@ import { useConnectionStatus } from '@/components/admin/connection-status';
 import { DashboardDemographics } from '@/components/admin/dashboard-charts';
 import { StatusBadge } from '@/components/admin/status-badge';
 import { Banner, PageHeader, controlClass } from '@/components/admin/console';
+import { RegistrationGateToggle } from '@/components/admin/registration-gate-toggle';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { href } from '@/lib/app-href';
+import { canVolunteerManage } from '@/app/lib/admin/permissions';
 
 const emptyMetrics: RegistrationMetrics = { total: 0, pending: 0, approved: 0, review: 0, flagged: 0 };
 const POLL_MS = 2000;
@@ -199,6 +201,7 @@ export default function AdminDashboardPage() {
   const showFloor = !data || hasCapability(session, 'dashboard.floor');
   const showRecent = !data || hasCapability(session, 'dashboard.recent');
   const showReports = !data || hasCapability(session, 'attendance.reports');
+  const canGateRegistration = !data || canVolunteerManage(session);
   const cards = [
     { label: 'Volunteers', value: metrics.total, note: `${metrics.pending} pending · ${metrics.approved} approved`, href: volunteersHref(sector, subsector), icon: Users, feature: 'volunteers' as const },
     {
@@ -234,42 +237,45 @@ export default function AdminDashboardPage() {
         title="Desk at a glance"
         description="Filter by sector and sub-sector to see counts, gender, age, education charts, and jump into the matching volunteer list."
       >
-        <div className={`grid gap-2 ${showSubsectorFilter ? 'sm:grid-cols-2' : ''}`}>
-          <label className="grid gap-1 text-xs text-zinc-400">
-            Sector
-            <select
-              className={controlClass}
-              value={sector}
-              onChange={(event) => {
-                const next = event.target.value;
-                setSector(next);
-                if (!sectorHasSubsectors(next)) setSubsector('');
-                else if (subsector && !subsectorOptionsForSector(next).includes(subsector)) {
-                  setSubsector('');
-                }
-              }}
-            >
-              <option value="">All sectors</option>
-              {SECTORS.map((option) => (
-                <option key={option} value={option}>{option}</option>
-              ))}
-            </select>
-          </label>
-          {showSubsectorFilter ? (
+        <div className="grid gap-3 sm:justify-items-end">
+          {canGateRegistration ? <RegistrationGateToggle /> : null}
+          <div className={`grid gap-2 ${showSubsectorFilter ? 'sm:grid-cols-2' : ''}`}>
             <label className="grid gap-1 text-xs text-zinc-400">
-              {subsectorFilterLabel}
+              Sector
               <select
                 className={controlClass}
-                value={subsector}
-                onChange={(event) => setSubsector(event.target.value)}
+                value={sector}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setSector(next);
+                  if (!sectorHasSubsectors(next)) setSubsector('');
+                  else if (subsector && !subsectorOptionsForSector(next).includes(subsector)) {
+                    setSubsector('');
+                  }
+                }}
               >
-                <option value="">All</option>
-                {subsectorFilterOptions.map((option) => (
+                <option value="">All sectors</option>
+                {SECTORS.map((option) => (
                   <option key={option} value={option}>{option}</option>
                 ))}
               </select>
             </label>
-          ) : null}
+            {showSubsectorFilter ? (
+              <label className="grid gap-1 text-xs text-zinc-400">
+                {subsectorFilterLabel}
+                <select
+                  className={controlClass}
+                  value={subsector}
+                  onChange={(event) => setSubsector(event.target.value)}
+                >
+                  <option value="">All</option>
+                  {subsectorFilterOptions.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+          </div>
         </div>
       </PageHeader>
       <Banner message={error || (data?.migrationRequired ? 'Apply supabase/migrations/009_ops_modules.sql to turn on attendance, shifts, cohorts, forms, and roles.' : null)} />

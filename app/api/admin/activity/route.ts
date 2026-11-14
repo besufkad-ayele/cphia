@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { activityCategory } from '@/app/lib/admin/activity';
 import { dbError, isMissingTable } from '@/app/lib/admin/guard';
-import { registrationStatusMetrics } from '@/app/lib/admin/registration-filters';
+import { canViewOpsAudit } from '@/app/lib/admin/ops-audit-access';
+import { registrationStatusMetrics, sanitizeSearch } from '@/app/lib/admin/registration-filters';
 import { unauthorized, verifyAdminSession } from '@/app/lib/admin/session';
 import { getSupabaseAdmin } from '@/app/lib/supabase/server';
 
@@ -37,12 +38,22 @@ const MODULE_LABELS: Record<string, string> = {
   registration: 'Public registration',
 };
 
-function requireSuperAdmin(session: { role: string } | null) {
+function requireOpsAuditViewer(session: { role: string; email: string } | null) {
   if (!session) return unauthorized();
-  if (session.role !== 'super_admin') {
-    return NextResponse.json({ error: 'FORBIDDEN' }, { status: 403 });
+  if (!canViewOpsAudit(session)) {
+    return NextResponse.json(
+      {
+        error: 'FORBIDDEN',
+        message: 'Ops audit is only visible to the designated superadmin desk owner.',
+      },
+      { status: 403 },
+    );
   }
   return null;
+}
+
+function escapeIlike(value: string) {
+  return value.replace(/[%_,]/g, ' ').trim().slice(0, 80);
 }
 
 function hourBucket(iso: string) {
@@ -83,11 +94,15 @@ function isModuleChange(action: string) {
 
 export async function GET(request: NextRequest) {
   const session = await verifyAdminSession(request);
-  const blocked = requireSuperAdmin(session);
+  const blocked = requireOpsAuditViewer(session);
   if (blocked) return blocked;
 
-  const limit = Math.min(200, Math.max(20, Number(request.nextUrl.searchParams.get('limit')) || 80));
+  const limit = Math.min(300, Math.max(20, Number(request.nextUrl.searchParams.get('limit')) || 80));
   const since = request.nextUrl.searchParams.get('since');
+  const q = escapeIlike(sanitizeSearch(request.nextUrl.searchParams.get('q') || ''));
+  const actor = escapeIlike(sanitizeSearch(request.nextUrl.searchParams.get('actor') || ''));
+  const person = escapeIlike(sanitizeSearch(request.nextUrl.searchParams.get('person') || ''));
+  const searching = Boolean(q || actor || person);
 
   try {
     const supabase = getSupabaseAdmin();
@@ -101,10 +116,49 @@ export async function GET(request: NextRequest) {
       .from('ops_activity_log')
       .select('id, created_at, actor_id, actor_email, actor_name, action, entity_type, entity_id, summary, metadata, request_path, ip')
       .order('created_at', { ascending: false })
-      .limit(limit);
+      .limit(searching ? Math.max(limit, 200) : limit);
 
     if (since) {
       feedQuery = feedQuery.gt('created_at', since);
+    }
+    // Admin who did the action
+    if (actor) {
+      feedQuery = feedQuery.or(
+        `actor_email.ilike.%${actor}%,actor_name.ilike.%${actor}%`,
+      );
+    }
+    // Volunteer / person the action was about (summary + subject metadata)
+    if (person) {
+      feedQuery = feedQuery.or(
+        [
+          `entity_id.ilike.%${person}%`,
+          `summary.ilike.%${person}%`,
+          `action.ilike.%${person}%`,
+          `metadata->>subjectName.ilike.%${person}%`,
+          `metadata->>subjectRegistrationId.ilike.%${person}%`,
+          `metadata->>subjectId.ilike.%${person}%`,
+          `metadata->>publicId.ilike.%${person}%`,
+          `metadata->>personName.ilike.%${person}%`,
+          `metadata->>registrationId.ilike.%${person}%`,
+        ].join(','),
+      );
+    }
+    // Free-text across actor + person + action
+    if (q) {
+      feedQuery = feedQuery.or(
+        [
+          `summary.ilike.%${q}%`,
+          `actor_email.ilike.%${q}%`,
+          `actor_name.ilike.%${q}%`,
+          `action.ilike.%${q}%`,
+          `entity_id.ilike.%${q}%`,
+          `entity_type.ilike.%${q}%`,
+          `metadata->>subjectName.ilike.%${q}%`,
+          `metadata->>subjectRegistrationId.ilike.%${q}%`,
+          `metadata->>publicId.ilike.%${q}%`,
+          `metadata->>personName.ilike.%${q}%`,
+        ].join(','),
+      );
     }
 
     const [feedResult, monthResult, registrationMetrics, sectorRows, attendanceToday, teamActive, registrationsTodayCount] = await Promise.all([
@@ -256,7 +310,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       generatedAt: new Date().toISOString(),
-      pollMs: 2000,
+      pollMs: searching ? 0 : 2000,
+      filters: { q, actor, person, searching },
       feed: feed.map(mapFeedItem),
       stats: {
         lastHour,

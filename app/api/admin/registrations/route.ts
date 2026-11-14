@@ -356,13 +356,19 @@ export async function POST(request: NextRequest) {
         .eq('registration_id', result.registrationId);
     }
 
+    const personName = `${registration.firstName} ${registration.lastName}`.trim();
     await logActivity({
       actor: gate.session,
       action: 'volunteer.create',
-      summary: `${gate.session.fullName} registered ${registration.firstName} ${registration.lastName} (${result.registrationId})`,
+      summary: `${gate.session.fullName} registered ${personName} (${result.registrationId})`,
       entityType: 'registration',
       entityId: result.id || result.registrationId,
-      metadata: { registrationId: result.registrationId, reviewStatus, sector: registration.sector },
+      subject: {
+        id: result.id || null,
+        registrationId: result.registrationId,
+        name: personName,
+      },
+      metadata: { registrationId: result.registrationId, reviewStatus, sector: registration.sector, publicId: result.registrationId, personName },
       request,
     });
 

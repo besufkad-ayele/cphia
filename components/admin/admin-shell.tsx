@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import {
+  Activity,
   CalendarCheck,
   CalendarRange,
   ClipboardList,
@@ -11,6 +12,7 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  MonitorOff,
   PanelLeftClose,
   PanelLeftOpen,
   Radio,
@@ -20,6 +22,8 @@ import {
   UsersRound,
   X,
 } from 'lucide-react';
+import { toast } from 'sonner';
+import { canViewOpsAudit } from '@/app/lib/admin/ops-audit-access';
 import {
   ADMIN_FEATURES,
   MOBILE_DOCK_PRIORITY,
@@ -59,12 +63,14 @@ const ICONS = {
 function AdminShellInner({
   children,
   name,
+  email,
   role,
   roleKey,
   permissions,
 }: {
   children: React.ReactNode;
   name: string;
+  email: string;
   role: string;
   roleKey: string;
   permissions: PermissionKey[] | null;
@@ -74,6 +80,9 @@ function AdminShellInner({
   const { notice } = useConnectionStatus();
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [revokingOthers, setRevokingOthers] = useState(false);
+  const isSuperAdmin = role === 'super_admin';
+  const showOpsAudit = canViewOpsAudit({ role, email });
 
   useEffect(() => {
     setExpanded(window.localStorage.getItem('cphia.admin.nav') === 'detail');
@@ -112,6 +121,30 @@ function AdminShellInner({
     router.replace('/admin/login');
   }
 
+  async function revokeOtherDevices() {
+    if (revokingOthers) return;
+    if (!window.confirm('Sign out all other devices? This device stays signed in.')) return;
+    setRevokingOthers(true);
+    try {
+      const response = await fetch('/api/admin/sessions/revoke-others', { method: 'POST' });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(
+          typeof payload?.message === 'string'
+            ? payload.message
+            : payload?.error === 'FORBIDDEN'
+              ? 'Only super admins can revoke other devices.'
+              : 'Could not sign out other devices.',
+        );
+      }
+      toast.success('Other devices signed out.');
+    } catch (reason) {
+      toast.error(reason instanceof Error ? reason.message : 'Could not sign out other devices.');
+    } finally {
+      setRevokingOthers(false);
+    }
+  }
+
   const items = ADMIN_FEATURES.filter((item) => permissions && hasFeature({ role, permissions }, item.key));
   const roleLabel = (roleKey || role).replace(/_/g, ' ');
 
@@ -122,38 +155,66 @@ function AdminShellInner({
           ? Array.from({ length: 6 }).map((_, index) => (
               <div key={index} className={cn('animate-pulse rounded-2xl bg-white/8', detailed ? 'h-14' : 'size-11')} />
             ))
-          : items.map((item) => {
-              const active = item.href === '/admin' ? pathname === '/admin' : pathname.startsWith(item.href);
-              const Icon = ICONS[item.key];
-              return (
-                <Link
-                  key={item.href}
-                  href={href(item.href)}
-                  title={item.label}
-                  aria-current={active ? 'page' : undefined}
-                  onClick={() => {
-                    if (item.key === 'dashboard') triggerDashboardGate(pathname, homePath);
-                  }}
-                  className={cn(
-                    'flex rounded-2xl text-sm transition',
-                    detailed ? 'items-start gap-3 px-3 py-2.5' : 'size-11 items-center justify-center',
-                    active
-                      ? 'bg-white/10 text-white shadow-[inset_0_0_0_1px_rgba(231,193,90,0.45)]'
-                      : 'text-zinc-300 hover:bg-white/8 hover:text-white',
-                  )}
-                >
-                  <Icon className={cn('size-[18px] shrink-0', active && 'text-[#e7c15a]', detailed && 'mt-0.5')} />
-                  {detailed ? (
-                    <span className="min-w-0">
-                      <span className="block font-medium">{item.label}</span>
-                      <span className="mt-0.5 block text-[11px] leading-4 text-zinc-400">{item.detail}</span>
-                    </span>
-                  ) : (
-                    <span className="sr-only">{item.label}</span>
-                  )}
-                </Link>
-              );
-            })}
+          : (
+              <>
+                {items.map((item) => {
+                  const active = item.href === '/admin' ? pathname === '/admin' : pathname.startsWith(item.href);
+                  const Icon = ICONS[item.key];
+                  return (
+                    <Link
+                      key={item.href}
+                      href={href(item.href)}
+                      title={item.label}
+                      aria-current={active ? 'page' : undefined}
+                      onClick={() => {
+                        if (item.key === 'dashboard') triggerDashboardGate(pathname, homePath);
+                      }}
+                      className={cn(
+                        'flex rounded-2xl text-sm transition',
+                        detailed ? 'items-start gap-3 px-3 py-2.5' : 'size-11 items-center justify-center',
+                        active
+                          ? 'bg-white/10 text-white shadow-[inset_0_0_0_1px_rgba(231,193,90,0.45)]'
+                          : 'text-zinc-300 hover:bg-white/8 hover:text-white',
+                      )}
+                    >
+                      <Icon className={cn('size-[18px] shrink-0', active && 'text-[#e7c15a]', detailed && 'mt-0.5')} />
+                      {detailed ? (
+                        <span className="min-w-0">
+                          <span className="block font-medium">{item.label}</span>
+                          <span className="mt-0.5 block text-[11px] leading-4 text-zinc-400">{item.detail}</span>
+                        </span>
+                      ) : (
+                        <span className="sr-only">{item.label}</span>
+                      )}
+                    </Link>
+                  );
+                })}
+                {showOpsAudit ? (
+                  <Link
+                    href={href('/admin/ops-pulse')}
+                    title="Ops audit"
+                    aria-current={pathname.startsWith('/admin/ops-pulse') ? 'page' : undefined}
+                    className={cn(
+                      'flex rounded-2xl text-sm transition',
+                      detailed ? 'items-start gap-3 px-3 py-2.5' : 'size-11 items-center justify-center',
+                      pathname.startsWith('/admin/ops-pulse')
+                        ? 'bg-white/10 text-white shadow-[inset_0_0_0_1px_rgba(231,193,90,0.45)]'
+                        : 'text-zinc-300 hover:bg-white/8 hover:text-white',
+                    )}
+                  >
+                    <Activity className={cn('size-[18px] shrink-0', pathname.startsWith('/admin/ops-pulse') && 'text-[#e7c15a]', detailed && 'mt-0.5')} />
+                    {detailed ? (
+                      <span className="min-w-0">
+                        <span className="block font-medium">Ops audit</span>
+                        <span className="mt-0.5 block text-[11px] leading-4 text-zinc-400">Private action search</span>
+                      </span>
+                    ) : (
+                      <span className="sr-only">Ops audit</span>
+                    )}
+                  </Link>
+                ) : null}
+              </>
+            )}
       </>
     );
   }
@@ -208,7 +269,19 @@ function AdminShellInner({
               <p className="truncate text-xs capitalize text-zinc-400">{roleLabel}</p>
             </>
           ) : null}
-          <Button variant="ghost" className={cn('text-zinc-300', expanded ? 'mt-3 h-10 w-full justify-start' : 'size-11')} onClick={() => void signOut()}>
+          {isSuperAdmin ? (
+            <Button
+              variant="ghost"
+              className={cn('text-zinc-300', expanded ? 'mt-3 h-10 w-full justify-start' : 'mt-1 size-11')}
+              disabled={revokingOthers}
+              title="Sign out other devices"
+              onClick={() => void revokeOtherDevices()}
+            >
+              <MonitorOff className="size-4" />
+              {expanded ? (revokingOthers ? 'Signing out…' : 'Other devices') : <span className="sr-only">Sign out other devices</span>}
+            </Button>
+          ) : null}
+          <Button variant="ghost" className={cn('text-zinc-300', expanded ? 'mt-1 h-10 w-full justify-start' : 'size-11')} onClick={() => void signOut()}>
             <LogOut className="size-4" />
             {expanded ? 'Sign out' : <span className="sr-only">Sign out</span>}
           </Button>
@@ -237,9 +310,16 @@ function AdminShellInner({
                   {notice}
                 </p>
               ) : null}
-              <Button variant="ghost" size="sm" className="md:hidden" onClick={() => void signOut()}>
-                Sign out
-              </Button>
+              <div className="flex items-center gap-1 md:hidden">
+                {isSuperAdmin ? (
+                  <Button variant="ghost" size="sm" disabled={revokingOthers} onClick={() => void revokeOtherDevices()}>
+                    {revokingOthers ? 'Revoking…' : 'Other devices'}
+                  </Button>
+                ) : null}
+                <Button variant="ghost" size="sm" onClick={() => void signOut()}>
+                  Sign out
+                </Button>
+              </div>
             </div>
           </div>
         </header>
@@ -297,6 +377,17 @@ function AdminShellInner({
             <nav className="flex flex-1 flex-col gap-1 overflow-y-auto">
               <NavLinks detailed />
             </nav>
+            {isSuperAdmin ? (
+              <Button
+                variant="ghost"
+                className="mt-3 h-10 w-full justify-start text-zinc-300"
+                disabled={revokingOthers}
+                onClick={() => void revokeOtherDevices()}
+              >
+                <MonitorOff className="size-4" />
+                {revokingOthers ? 'Signing out…' : 'Sign out other devices'}
+              </Button>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -307,6 +398,7 @@ function AdminShellInner({
 export function AdminShell(props: {
   children: React.ReactNode;
   name: string;
+  email: string;
   role: string;
   roleKey: string;
   permissions: PermissionKey[] | null;

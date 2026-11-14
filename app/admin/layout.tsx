@@ -7,7 +7,13 @@ import type { PermissionKey } from '@/app/lib/admin/permissions';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const [admin, setAdmin] = useState<{ fullName: string; role: string; roleKey: string; permissions: PermissionKey[] } | null>(null);
+  const [admin, setAdmin] = useState<{
+    fullName: string;
+    email: string;
+    role: string;
+    roleKey: string;
+    permissions: PermissionKey[];
+  } | null>(null);
 
   useEffect(() => {
     document.documentElement.classList.add('admin-dark');
@@ -19,11 +25,18 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   useEffect(() => {
     if (pathname === '/admin/login') return;
     fetch('/api/admin/me')
-      .then((response) => (response.ok ? response.json() : null))
+      .then(async (response) => {
+        if (response.status === 401) {
+          window.location.replace('/admin/login');
+          return null;
+        }
+        return response.ok ? response.json() : null;
+      })
       .then((payload) => {
         if (payload?.email) {
           setAdmin({
             fullName: payload.fullName,
+            email: payload.email,
             role: payload.role,
             roleKey: payload.roleKey || payload.role,
             permissions: Array.isArray(payload.permissions) ? payload.permissions : [],
@@ -40,6 +53,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       ) : (
         <AdminShell
           name={admin?.fullName || 'Admin'}
+          email={admin?.email || ''}
           role={admin?.role || 'admin'}
           roleKey={admin?.roleKey || admin?.role || 'admin'}
           permissions={admin?.permissions ?? null}

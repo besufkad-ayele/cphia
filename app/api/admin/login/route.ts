@@ -39,6 +39,10 @@ export async function POST(request: NextRequest) {
 
     const role = admin.role === 'super_admin' ? 'super_admin' : 'admin';
     const stored = cleanPermissions(admin.permissions);
+    const sessionVersion =
+      typeof admin.session_version === 'number' && Number.isFinite(admin.session_version)
+        ? Math.max(0, Math.floor(admin.session_version))
+        : 0;
     const session = {
       id: admin.id,
       email: admin.email,
@@ -46,6 +50,7 @@ export async function POST(request: NextRequest) {
       fullName: admin.full_name || 'Admin',
       roleKey: typeof admin.role_key === 'string' && admin.role_key ? admin.role_key : role,
       permissions: role === 'super_admin' ? defaultPermissions('super_admin') : stored.length ? stored : defaultPermissions('admin'),
+      sessionVersion,
     } as const;
     const token = await signAdminJwt(session);
     await logActivity({

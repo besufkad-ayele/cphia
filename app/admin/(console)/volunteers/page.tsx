@@ -30,6 +30,7 @@ import {
   EXPORT_COLUMNS,
 } from '@/app/lib/admin/types';
 import { ExportColumnsDialog } from '@/components/admin/export-columns-dialog';
+import { RegistrationGateToggle } from '@/components/admin/registration-gate-toggle';
 import { ReviewStatusActions } from '@/components/admin/review-status-actions';
 import { SectorMultiSelect } from '@/components/admin/sector-multi-select';
 import { StatusBadge } from '@/components/admin/status-badge';
@@ -572,7 +573,8 @@ function VolunteersTable() {
             Sorted by name · father · grandfather. Search runs instantly on the loaded list.
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-start">
+          {canManage ? <RegistrationGateToggle className="col-span-2 sm:col-span-1" /> : null}
           {canManage ? (
             <Link href={href('/admin/volunteers/new')} className={cn(buttonVariants(), 'h-11')}>
               <Plus className="size-4" />

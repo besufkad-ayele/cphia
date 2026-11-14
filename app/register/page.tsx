@@ -6,7 +6,6 @@ import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Skeleton } from '@/components/ui/skeleton';
 import { VolunteerIdCard } from '@/components/register/volunteer-id-card';
-import { isRegistrationOpen } from '@/app/lib/registration-open';
 import { RegistrationClosed } from './components/registration-closed';
 import {
   AppShell,
@@ -28,8 +27,6 @@ import { badgeFromForm } from './steps/ReviewStep';
 import { useDraft, SESSION_KEY, STORAGE_KEY, SUBMITTED_KEY } from './hooks/useDraft';
 import { useStepValidation } from './hooks/useStepValidation';
 import type { LanguageRow, RegisterFormValues, StoredPhoto } from './types';
-
-const registrationOpen = isRegistrationOpen();
 
 function createLanguageRows(): LanguageRow[] {
   return [
@@ -100,6 +97,7 @@ async function hashValue(value: string) {
 
 function RegisterScreen() {
   const [locale, setLocale] = useState<AppLocale>('en');
+  const [registrationOpen, setRegistrationOpen] = useState<boolean | null>(null);
   const [step, setStep] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -152,6 +150,22 @@ function RegisterScreen() {
   useLayoutEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   }, [step]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/registration-open')
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload) => {
+        if (cancelled) return;
+        setRegistrationOpen(typeof payload?.open === 'boolean' ? payload.open : true);
+      })
+      .catch(() => {
+        if (!cancelled) setRegistrationOpen(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const setLocaleAndForm = (nextLocale: AppLocale) => {
     setLocale(nextLocale);
@@ -359,7 +373,7 @@ function RegisterScreen() {
     await navigator.clipboard.writeText(submittedId);
   };
 
-  if (!hydrated) {
+  if (!hydrated || registrationOpen == null) {
     return (
       <main className="grid min-h-screen gap-3 bg-primary p-4">
         <Skeleton className="h-16 w-full" />

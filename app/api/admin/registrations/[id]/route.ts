@@ -341,30 +341,42 @@ export async function PATCH(
     return NextResponse.json({ error: 'NO_UPDATES' }, { status: 400 });
   }
 
-  let data: { id: string; review_status: string | null; email_status: string | null; device_flag: string | null } | null = null;
+  type PatchRow = {
+    id: string;
+    registration_id: string | null;
+    first_name: string | null;
+    middle_name: string | null;
+    last_name: string | null;
+    review_status: string | null;
+    email_status: string | null;
+    device_flag: string | null;
+  };
+  const patchSelect =
+    'id, registration_id, first_name, middle_name, last_name, review_status, email_status, device_flag';
+  let data: PatchRow | null = null;
 
   if (hasFieldUpdates) {
     const result = await supabase
       .from('registrations')
       .update(updates)
       .eq('id', id)
-      .select('id, review_status, email_status, device_flag')
+      .select(patchSelect)
       .maybeSingle();
     if (result.error || !result.data) {
       console.error('admin_registration_patch_error', result.error);
       return NextResponse.json({ error: 'UPDATE_FAILED', details: result.error?.message }, { status: 500 });
     }
-    data = result.data;
+    data = result.data as PatchRow;
   } else {
     const result = await supabase
       .from('registrations')
-      .select('id, review_status, email_status, device_flag')
+      .select(patchSelect)
       .eq('id', id)
       .maybeSingle();
     if (result.error || !result.data) {
       return NextResponse.json({ error: 'NOT_FOUND' }, { status: 404 });
     }
-    data = result.data;
+    data = result.data as PatchRow;
   }
 
   if (hasLanguageUpdates && languages) {
@@ -392,19 +404,24 @@ export async function PATCH(
   const reviewStatus = typeof updates.review_status === 'string' ? updates.review_status : data.review_status;
   const reviewNote = typeof updates.review_note === 'string' ? updates.review_note : undefined;
   const changedKeys = Object.keys(updates);
+  const publicId = String(data.registration_id || '');
+  const personName = [data.first_name, data.middle_name, data.last_name].filter(Boolean).join(' ').trim() || 'volunteer';
   await logActivity({
     actor: gate.session,
     action: changedKeys.includes('review_status') ? `volunteer.${reviewStatus || 'update'}` : 'volunteer.update',
     summary: changedKeys.includes('review_status')
-      ? `${gate.session.fullName} set volunteer status to ${reviewStatus}${reviewNote ? `: ${reviewNote.slice(0, 120)}` : ''}`
-      : `${gate.session.fullName} updated a volunteer record`,
+      ? `${gate.session.fullName} set ${personName}${publicId ? ` (${publicId})` : ''} to ${reviewStatus}${reviewNote ? `: ${reviewNote.slice(0, 120)}` : ''}`
+      : `${gate.session.fullName} updated ${personName}${publicId ? ` (${publicId})` : ''}`,
     entityType: 'registration',
     entityId: id,
+    subject: { id, registrationId: publicId, name: personName },
     metadata: {
       fields: changedKeys,
       reviewStatus,
       reviewNote: reviewNote || undefined,
       languagesUpdated: hasLanguageUpdates,
+      publicId,
+      personName,
     },
     request,
   });
@@ -425,6 +442,20 @@ export async function DELETE(
 
   const { id } = await params;
   const supabase = getSupabaseAdmin();
+  const existing = await supabase
+    .from('registrations')
+    .select('id, registration_id, first_name, middle_name, last_name')
+    .eq('id', id)
+    .maybeSingle();
+  if (existing.error || !existing.data) {
+    return NextResponse.json({ error: 'NOT_FOUND' }, { status: 404 });
+  }
+  const publicId = String(existing.data.registration_id || '');
+  const personName = [existing.data.first_name, existing.data.middle_name, existing.data.last_name]
+    .filter(Boolean)
+    .join(' ')
+    .trim() || 'volunteer';
+
   const { error } = await supabase.from('registrations').delete().eq('id', id);
   if (error) {
     console.error('admin_registration_delete_error', error);
@@ -433,9 +464,11 @@ export async function DELETE(
   await logActivity({
     actor: gate.session,
     action: 'volunteer.delete',
-    summary: `${gate.session.fullName} deleted a volunteer registration`,
+    summary: `${gate.session.fullName} deleted ${personName}${publicId ? ` (${publicId})` : ''}`,
     entityType: 'registration',
     entityId: id,
+    subject: { id, registrationId: publicId, name: personName },
+    metadata: { publicId, personName },
     request,
   });
   return NextResponse.json({ ok: true });

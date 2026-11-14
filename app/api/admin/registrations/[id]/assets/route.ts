@@ -65,7 +65,8 @@ export async function GET(
       summary: `${gate.session.fullName} downloaded ${item.label} for ${registrationId}`,
       entityType: 'registration',
       entityId: id,
-      metadata: { slot: item.key, path },
+      subject: { id, registrationId, name: registrationId },
+      metadata: { slot: item.key, path, publicId: registrationId },
       request,
     });
     return new NextResponse(bytes, {
@@ -99,7 +100,8 @@ export async function GET(
     summary: `${gate.session.fullName} downloaded ${added} asset file${added === 1 ? '' : 's'} for ${registrationId}`,
     entityType: 'registration',
     entityId: id,
-    metadata: { count: added },
+    subject: { id, registrationId, name: registrationId },
+    metadata: { count: added, publicId: registrationId },
     request,
   });
 

@@ -1,7 +1,7 @@
 export function errorMessage(payload: { error?: string; message?: string } | null | undefined, fallback: string) {
   if (!payload) return fallback;
   if (payload.error === 'MIGRATION_REQUIRED') return payload.message || 'Apply the latest database migration to use this module.';
-  if (payload.error === 'FORBIDDEN') return 'Your role does not include this module.';
+  if (payload.error === 'FORBIDDEN') return 'Your role does not include this action.';
   if (payload.error === 'DUPLICATE_EMAIL') return 'That email is already an admin account.';
   if (payload.error === 'WEAK_PASSWORD') return 'Use a password of at least 8 characters.';
   if (payload.error === 'LAST_SUPER_ADMIN') return 'Keep at least one active super admin.';

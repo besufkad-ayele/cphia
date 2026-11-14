@@ -25,10 +25,7 @@ import {
   consumePublicFirstTransition,
   requestBrandTransition,
 } from '@/app/lib/brand-transition';
-import { isRegistrationOpen } from '@/app/lib/registration-open';
 import { href } from '@/lib/app-href';
-
-const registrationOpen = isRegistrationOpen();
 
 const highlights = [
   { icon: Calendar, label: 'November 23–27, 2026' },
@@ -177,7 +174,22 @@ function SlideToAction({
 export default function PublicHomePage() {
   const router = useRouter();
   const [index, setIndex] = useState(0);
+  const [registrationOpen, setRegistrationOpen] = useState(true);
   const last = index === SLIDE_COUNT - 1;
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/registration-open')
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload) => {
+        if (cancelled) return;
+        if (typeof payload?.open === 'boolean') setRegistrationOpen(payload.open);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const goToRegister = useCallback(() => {
     if (consumePublicFirstTransition()) {

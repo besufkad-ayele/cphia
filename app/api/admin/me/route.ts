@@ -11,19 +11,62 @@ import { getSupabaseAdmin } from '@/app/lib/supabase/server';
 
 export const runtime = 'nodejs';
 
+function isMissingSessionVersionColumn(error: { code?: string; message?: string } | null | undefined) {
+  if (!error) return false;
+  const message = error.message || '';
+  return (
+    error.code === '42703' ||
+    error.code === 'PGRST204' ||
+    /session_version|schema cache|does not exist/i.test(message)
+  );
+}
+
 export async function GET(request: NextRequest) {
   const session = await verifyAdminSession(request);
   if (!session) return unauthorized();
 
   try {
     const supabase = getSupabaseAdmin();
-    const { data: admin } = await supabase
+    let admin: {
+      id: string;
+      email: string;
+      full_name: string | null;
+      role: string;
+      role_key: string | null;
+      permissions: unknown;
+      status: string;
+      session_version?: number | null;
+    } | null = null;
+
+    const withVersion = await supabase
       .from('admins')
-      .select('id, email, full_name, role, role_key, permissions, status')
+      .select('id, email, full_name, role, role_key, permissions, status, session_version')
       .eq('id', session.id)
       .maybeSingle();
 
+    if (isMissingSessionVersionColumn(withVersion.error)) {
+      const legacy = await supabase
+        .from('admins')
+        .select('id, email, full_name, role, role_key, permissions, status')
+        .eq('id', session.id)
+        .maybeSingle();
+      admin = legacy.data;
+    } else {
+      if (withVersion.error) return unauthorized();
+      admin = withVersion.data;
+    }
+
     if (!admin || admin.status !== 'active') return unauthorized();
+
+    const hasVersionColumn = Object.prototype.hasOwnProperty.call(admin, 'session_version');
+    const liveVersion =
+      typeof admin.session_version === 'number' && Number.isFinite(admin.session_version)
+        ? Math.max(0, Math.floor(admin.session_version))
+        : 0;
+
+    if (hasVersionColumn && session.sessionVersion !== liveVersion) {
+      return unauthorized();
+    }
 
     const role = admin.role === 'super_admin' ? 'super_admin' : 'admin';
     const stored = cleanPermissions(admin.permissions);
@@ -39,6 +82,7 @@ export async function GET(request: NextRequest) {
           : stored.length
             ? stored
             : defaultPermissions('admin'),
+      sessionVersion: hasVersionColumn ? liveVersion : session.sessionVersion,
     } as const;
 
     const response = NextResponse.json(next);
